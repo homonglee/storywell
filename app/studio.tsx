@@ -94,6 +94,7 @@ export default function StoryStudio() {
   const [projects, setProjects] = useState<StoryProject[]>([]);
   const [current, setCurrent] = useState<StoryProject>(sample);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [form, setForm] = useState<ProjectInput>(initialForm);
   const [loading, setLoading] = useState(true);
@@ -472,6 +473,7 @@ export default function StoryStudio() {
         <div className="header-divider" />
         <div className="project-crumb"><BookMarked /><span>{current.title}</span></div>
         <div className="header-actions">
+          <Button variant="outline" className="manual-button" onClick={() => setManualOpen(true)}><BookOpenText />사용자매뉴얼</Button>
           <span className={"ai-state " + (aiConfigured ? "ready" : "pending")}><Sparkles />{aiConfigured ? aiModel + " 연결됨" : "AI 연결 필요"}</span>
           <span className="save-state"><span className="save-dot" />{saving ? "저장 중" : "변경사항 보호됨"}</span>
           <DropdownMenu>
@@ -635,6 +637,37 @@ export default function StoryStudio() {
             </div>
             <DialogFooter><Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>취소</Button><Button type="submit" className="magic-button" disabled={saving}><WandSparkles />{saving ? "설계하는 중…" : "전체 이야기 설계"}</Button></DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={manualOpen} onOpenChange={setManualOpen}>
+        <DialogContent className="manual-dialog sm:max-w-4xl">
+          <DialogHeader>
+            <div className="dialog-icon"><BookOpenText /></div>
+            <DialogTitle>StoryWell 사용자매뉴얼</DialogTitle>
+            <DialogDescription>작품 설계부터 원고 저장과 내보내기까지, 이 순서대로 사용해 보세요.</DialogDescription>
+          </DialogHeader>
+          <div className="manual-layout">
+            <nav className="manual-toc" aria-label="매뉴얼 목차">
+              <a href="#manual-start">1. 시작하기</a>
+              <a href="#manual-plan">2. 전체 설계</a>
+              <a href="#manual-write">3. 회차 집필</a>
+              <a href="#manual-ai">4. AI 조력자</a>
+              <a href="#manual-continuity">5. 복선과 연속성</a>
+              <a href="#manual-save">6. 저장·내보내기</a>
+              <a href="#manual-tips">7. 작업 팁</a>
+            </nav>
+            <div className="manual-content">
+              <section id="manual-start"><h3>1. 시작하기</h3><p><strong>새 작품 설계</strong>를 눌러 제목, 시놉시스, 장르, 톤과 목표 회차를 입력합니다. 짧은 시놉시스에는 주인공, 원하는 것, 가장 큰 장애물을 담으면 더 선명한 설계가 만들어집니다.</p></section>
+              <section id="manual-plan"><h3>2. 전체 설계 읽기</h3><p>첫 화면의 <strong>전체 설계</strong> 탭에서 로그라인, 핵심 질문, 세계관 규칙과 12단계 이야기 지도를 확인합니다. 지도에서 원하는 구간을 누르면 해당 회차가 선택됩니다.</p><p><strong>캐릭터</strong> 탭에서는 욕망·두려움·비밀·말투를, <strong>회차</strong> 탭에서는 각 화의 사건과 감정, 마지막 훅을 살펴볼 수 있습니다.</p></section>
+              <section id="manual-write"><h3>3. 회차 집필하기</h3><p><strong>집필</strong> 탭으로 이동한 뒤 왼쪽의 회차 번호를 고릅니다. 상단의 ‘이번 화 목표’와 ‘마지막 훅’을 참고해 가운데 원고 칸에 직접 작성하세요. 원고는 저장하기 전에도 화면에서 계속 편집할 수 있습니다.</p><p>원고가 마무리되면 <strong>완료 표시</strong>를 누르고 <strong>원고 저장</strong>으로 확정합니다. 저장하면 해당 회차의 글자 수와 상태가 작품에 반영됩니다.</p></section>
+              <section id="manual-ai"><h3>4. AI 조력자 활용하기</h3><p>AI가 연결된 상태라면 <strong>AI로 전체 설계</strong>로 작품 구조를 다시 제안받거나, 집필 탭에서 <strong>AI로 이번 화 집필</strong>을 선택할 수 있습니다.</p><p>문단을 드래그한 뒤 수정 요청을 누르면 선택한 부분만 다듬습니다. 선택하지 않으면 회차 전체를 대상으로 합니다. 제안은 비교 창에서 확인하며, <strong>수정안 적용</strong>을 눌렀을 때만 원고에 반영됩니다.</p></section>
+              <section id="manual-continuity"><h3>5. 복선과 연속성 관리</h3><p><strong>복선</strong> 탭에서 설치 회차와 회수 회차를 확인하고, 필요한 복선을 추가합니다. <strong>AI 연속성 검사</strong>는 현재 원고와 설정을 비교해 시간선, 인물 설정, 미회수 단서를 점검합니다.</p><p>‘원고에서 확정된 기억’은 이후 집필 때 참조할 사실입니다. 중요한 설정은 직접 다시 확인하고, 작품의 기준과 다르면 원고 또는 설정을 수정하세요.</p></section>
+              <section id="manual-save"><h3>6. 저장과 내보내기</h3><p>작업 중에는 상단 <strong>저장</strong> 버튼으로 작품 설정과 원고를 보관합니다. 상단 <strong>내보내기</strong>에서는 현재 회차 또는 전체 원고를 TXT로, 작품 설계를 포함한 원고를 Markdown으로, 전체 백업을 JSON으로 받을 수 있습니다.</p><p>외부에 공유하거나 큰 수정 전에는 JSON 백업을 한 번 내려받아 두는 것을 권합니다.</p></section>
+              <section id="manual-tips"><h3>7. 매끄러운 작업을 위한 팁</h3><ul><li>새 회차를 쓰기 전, 이전 화의 마지막 훅과 인물의 현재 상태를 먼저 확인하세요.</li><li>AI 결과는 초안으로 보고, 작품의 목소리와 설정에 맞게 직접 다듬으세요.</li><li>큰 변경 뒤에는 저장하고 연속성 검사를 실행해 설정 충돌을 일찍 찾으세요.</li></ul></section>
+            </div>
+          </div>
+          <DialogFooter><Button onClick={() => setManualOpen(false)}><Check />매뉴얼 닫기</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
