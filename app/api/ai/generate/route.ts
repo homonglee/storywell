@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { createOpenAIResponse, requireOpenAIConfig } from "@/lib/server/openai";
 
 type Action = "plan" | "episode" | "rewrite" | "analyze";
 type Payload = {
@@ -249,10 +250,13 @@ async function rememberGeneration(request: Request, payload: Payload, action: Ac
 }
 
 export async function POST(request: Request) {
-  if (!env.OPENAI_API_KEY) {
+  let model: string;
+  try {
+    model = requireOpenAIConfig().model;
+  } catch {
     return Response.json(
       { error: "AI 연결이 아직 완료되지 않았습니다.", code: "AI_NOT_CONFIGURED" },
-      { status: 503 }
+      { status: 503, headers: { "Cache-Control": "no-store" } }
     );
   }
 
@@ -266,7 +270,6 @@ export async function POST(request: Request) {
       return Response.json({ error: "작품 정보가 필요합니다." }, { status: 400 });
     }
 
-    const model = env.OPENAI_MODEL ?? "gpt-5.6-terra";
     const structured = action === "plan" || action === "analyze";
     const schema = action === "plan" ? planSchema : analysisSchema;
     const controller = new AbortController();
@@ -292,15 +295,7 @@ export async function POST(request: Request) {
 
     let apiResponse: Response;
     try {
-      apiResponse = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer " + env.OPENAI_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
+      apiResponse = await createOpenAIResponse(body, controller.signal);
     } finally {
       clearTimeout(timer);
     }
@@ -320,12 +315,15 @@ export async function POST(request: Request) {
     const text = extractText(response);
     const result = structured ? JSON.parse(text) : text;
     await rememberGeneration(request, payload, action, model, text);
-    return Response.json({
-      result,
-      model,
-      responseId: response.id,
-      usage: response.usage ?? null,
-    });
+    return Response.json(
+      {
+        result,
+        model,
+        responseId: response.id,
+        usage: response.usage ?? null,
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   } catch (error) {
     const message =
       error instanceof Error && error.name === "AbortError"
