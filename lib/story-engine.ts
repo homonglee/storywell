@@ -56,6 +56,15 @@ export type ContinuityIssue = {
   suggestion: string;
 };
 
+export type EpisodeDraft = {
+  episodeNumber: number;
+  title: string;
+  body: string;
+  status: "draft" | "done";
+  revision: number;
+  updatedAt: string;
+};
+
 export type StoryContent = {
   logline: string;
   theme: string;
@@ -67,6 +76,7 @@ export type StoryContent = {
   foreshadows: Foreshadow[];
   ideas: StoryIdea[];
   manuscript: string;
+  episodeDrafts?: Record<string, EpisodeDraft>;
   memories?: StoryMemory[];
   issues?: ContinuityIssue[];
   currentSummary?: string;
@@ -248,6 +258,17 @@ export function buildStory(input: ProjectInput): StoryContent {
     ],
     manuscript:
       "비가 오지 않았는데도 골목은 젖어 있었다.\n\n서윤은 멈춘 손목시계를 귀에 가져갔다. 초침은 움직이지 않았지만, 아주 가까이에서 누군가 문을 두드리는 소리가 났다. 세 번. 잠시 멎었다가 다시 두 번.\n\n그 시각은 어젯밤과 같았다. 11시 47분.\n\n‘우연일 리 없어.’\n\n고개를 들자 골목 끝에 한 남자가 서 있었다. 우산도 없이 비어 있는 하늘을 올려다보던 그는 서윤과 눈이 마주치자 오래 기다렸다는 듯 웃었다.\n\n“이번에는 늦지 않았네요.”\n\n서윤은 그를 처음 봤다. 그런데 남자는 서윤이 가장 싫어하는 옛 호칭으로 그녀를 불렀다.\n\n그 순간, 멈췄던 초침이 거꾸로 움직이기 시작했다.",
+    episodeDrafts: {
+      "1": {
+        episodeNumber: 1,
+        title: episodes[0]?.title ?? "1화",
+        body:
+          "비가 오지 않았는데도 골목은 젖어 있었다.\n\n서윤은 멈춘 손목시계를 귀에 가져갔다. 초침은 움직이지 않았지만, 아주 가까이에서 누군가 문을 두드리는 소리가 났다. 세 번. 잠시 멎었다가 다시 두 번.\n\n그 시각은 어젯밤과 같았다. 11시 47분.\n\n‘우연일 리 없어.’\n\n고개를 들자 골목 끝에 한 남자가 서 있었다. 우산도 없이 비어 있는 하늘을 올려다보던 그는 서윤과 눈이 마주치자 오래 기다렸다는 듯 웃었다.\n\n“이번에는 늦지 않았네요.”\n\n서윤은 그를 처음 봤다. 그런데 남자는 서윤이 가장 싫어하는 옛 호칭으로 그녀를 불렀다.\n\n그 순간, 멈췄던 초침이 거꾸로 움직이기 시작했다.",
+        status: "draft",
+        revision: 1,
+        updatedAt: new Date().toISOString(),
+      },
+    },
     memories: [
       { category: "물건", subject: "멈춘 손목시계", fact: "11시 47분에 멈춰 있으며 가까이 대면 문 두드리는 소리가 난다.", episode: 1, confidence: 98, locked: true },
       { category: "인물", subject: "서윤", fact: "도진을 처음 본다고 생각하지만 그가 사용한 옛 호칭에 반응한다.", episode: 1, confidence: 92, locked: false },

@@ -253,9 +253,10 @@ button { cursor: pointer; }
 .episode-row > svg { width: 15px; color: #646b77; }
 
 .writing-panel { display: grid; grid-template-columns: 52px minmax(0, 1fr) 260px; min-height: 620px; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: #141a24; }
-.episode-rail { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 17px 7px; border-right: 1px solid var(--line); background: #10151e; }
+.episode-rail { display: flex; flex-direction: column; align-items: center; gap: 4px; max-height: 760px; overflow-y: auto; padding: 17px 7px; border-right: 1px solid var(--line); background: #10151e; scrollbar-width: thin; }
 .episode-rail > span { margin-bottom: 8px; color: #626a77; font-size: 10px; }
-.episode-rail button { width: 32px; height: 30px; border: 0; border-radius: 8px; color: #737b88; background: transparent; font-size: 11px; }
+.episode-rail button { position: relative; flex: none; width: 32px; height: 30px; border: 0; border-radius: 8px; color: #737b88; background: transparent; font-size: 11px; }
+.episode-rail button i { position: absolute; right: 3px; bottom: 3px; width: 5px; height: 5px; border-radius: 999px; }
 .episode-rail button:hover, .episode-rail button.active { color: #171109; background: var(--gold); }
 .manuscript { min-width: 0; padding: 28px clamp(24px, 4vw, 54px); }
 .manuscript-head { display: flex; justify-content: space-between; align-items: start; }
@@ -270,6 +271,7 @@ button { cursor: pointer; }
 .manuscript-editor:focus-visible { border: 0; box-shadow: none; }
 .manuscript-footer { display: flex; align-items: center; gap: 15px; padding-top: 14px; border-top: 1px solid var(--line); color: #6f7784; font-size: 11px; }
 .manuscript-footer button { margin-left: auto; }
+.manuscript-footer button + button { margin-left: 0; }
 .writing-assistant { padding: 22px 17px; border-left: 1px solid var(--line); background: #171e2a; }
 .assistant-title { display: flex; gap: 10px; padding-bottom: 17px; border-bottom: 1px solid var(--line); }
 .assistant-title > svg { width: 20px; color: var(--gold); }
@@ -286,6 +288,10 @@ button { cursor: pointer; }
 .assistant-actions button:hover { border-color: rgba(233, 170, 66, 0.26); color: #dedbd4; }
 .assistant-generate { width: 100%; }
 .episode-generate { margin-top: 18px; }
+.selection-hint { margin: 13px 0 0; color: #78818f; font-size: 10px; line-height: 1.55; }
+.custom-rewrite { display: grid; gap: 8px; margin-bottom: 10px; }
+.custom-rewrite textarea { min-height: 74px; resize: vertical; background: #111722; font-size: 11px; line-height: 1.5; }
+.custom-rewrite button { width: 100%; }
 
 .foreshadow-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .foreshadow-card { padding: 20px; }
@@ -346,6 +352,12 @@ button { cursor: pointer; }
 .dialog-fields input, .dialog-fields textarea, .dialog-fields select { background: #111722; }
 .dialog-field-grid { display: grid; grid-template-columns: 1fr 1.35fr 0.7fr; gap: 12px; }
 .dialog-field-grid [data-slot="native-select-wrapper"] { width: 100%; }
+.rewrite-dialog { max-height: 90vh; overflow-y: auto; border-color: rgba(233, 170, 66, 0.22); color: var(--paper); background: #171e2a; }
+.rewrite-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0; }
+.rewrite-compare section { min-width: 0; }
+.rewrite-compare section > span { display: block; margin-bottom: 7px; color: #9299a5; font-size: 11px; font-weight: 700; }
+.rewrite-compare section > div { min-height: 300px; max-height: 52vh; overflow: auto; padding: 18px; border: 1px solid var(--line); border-radius: 12px; color: #d8d5cf; background: #111722; font-family: "Iowan Old Style", "Noto Serif KR", Georgia, serif; font-size: 14px; line-height: 1.8; white-space: pre-wrap; }
+.rewrite-compare section:last-child > div { border-color: rgba(233, 170, 66, 0.28); background: #161b24; }
 
 @media (max-width: 1100px) {
   .metric-row { grid-template-columns: repeat(3, 1fr); }
@@ -396,6 +408,7 @@ button { cursor: pointer; }
   .manuscript-footer button { width: 100%; margin: 5px 0 0; }
   .writing-assistant { grid-column: auto; }
   .assistant-actions { grid-template-columns: 1fr; }
+  .rewrite-compare { grid-template-columns: 1fr; }
   .consistency-report { grid-template-columns: 1fr; }
   .memory-grid { grid-template-columns: 1fr; }
   .report-score { grid-column: auto; }

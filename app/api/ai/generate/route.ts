@@ -7,6 +7,9 @@ type Payload = {
   episode?: Record<string, unknown>;
   instruction?: string;
   selectedText?: string;
+  rewriteTarget?: "selection" | "episode";
+  beforeContext?: string;
+  afterContext?: string;
 };
 
 const planSchema = {
@@ -158,6 +161,10 @@ function clip(value: unknown, max: number) {
 
 function projectContext(project: Record<string, unknown>) {
   const content = (project.content ?? {}) as Record<string, unknown>;
+  const draftEntries = Object.values((content.episodeDrafts ?? {}) as Record<string, Record<string, unknown>>)
+    .sort((a, b) => Number(a.episodeNumber ?? 0) - Number(b.episodeNumber ?? 0))
+    .slice(-6)
+    .map((draft) => ({ episodeNumber: draft.episodeNumber, title: draft.title, body: clip(draft.body, 12000) }));
   return {
     id: clip(project.id, 100),
     title: clip(project.title, 300),
@@ -178,6 +185,7 @@ function projectContext(project: Record<string, unknown>) {
     },
     episodes: content.episodes,
     manuscript: clip(content.manuscript, 50000),
+    recentEpisodeDrafts: draftEntries,
   };
 }
 
@@ -194,7 +202,8 @@ function actionPrompt(action: Action, payload: Payload) {
     return guard + "\n한국 웹소설 작가로서 지정 회차의 완성 원고를 작성하라. 분량은 공백 포함 약 4,500~5,500자. 장면으로 보여주고 설명을 남발하지 말며, 인물별 말투를 지키고 마지막은 다음 화를 결제하고 싶게 만드는 강한 훅으로 끝내라. 제목이나 해설 없이 원고 본문만 출력하라. 기존 유명 작가의 문체를 모방하지 말라.\n<story_data>" + serialized + "</story_data>\n<episode>" + episode + "</episode>";
   }
   if (action === "rewrite") {
-    return guard + "\n웹소설 원고 편집자로서 아래 선택 원고를 요청에 맞게 다시 쓰라. 사건의 사실관계와 인물 말투는 유지한다. 설명 없이 수정된 본문만 출력한다.\n<instruction>" + clip(payload.instruction, 500) + "</instruction>\n<story_data>" + serialized + "</story_data>\n<selected_text>" + clip(payload.selectedText, 20000) + "</selected_text>";
+    const target = payload.rewriteTarget === "selection" ? "선택 문단" : "회차 전체";
+    return guard + "\n웹소설 원고 편집자로서 아래 " + target + "을 요청에 맞게 다시 쓰라. 사건의 사실관계, 시점, 인물 말투, 고유명사와 앞뒤 연결은 유지한다. 선택 문단 작업이면 앞뒤 맥락은 참고만 하고 선택 문단을 대체할 본문만 출력한다. 회차 전체 작업이면 완성된 회차 본문만 출력한다. 변경 설명·머리말·마크다운은 쓰지 않는다.\n<instruction>" + clip(payload.instruction, 500) + "</instruction>\n<story_data>" + serialized + "</story_data>\n<before_context>" + clip(payload.beforeContext, 1500) + "</before_context>\n<selected_text>" + clip(payload.selectedText, 30000) + "</selected_text>\n<after_context>" + clip(payload.afterContext, 1500) + "</after_context>";
   }
   return guard + "\n장편 웹소설의 연속성 감수자로서 현재 원고와 스토리 바이블을 비교하라. 새로 확정된 사실을 기억 항목으로 추출하고, 설정·시간선·인물 지식 범위·소지품·관계·복선 충돌을 근거와 함께 찾아라. 확실하지 않은 내용은 오류로 단정하지 말고 확인으로 분류하라.\n<story_data>" + serialized + "</story_data>";
 }
@@ -229,7 +238,7 @@ async function rememberGeneration(request: Request, payload: Payload, action: Ac
         clip(project.id, 100),
         action,
         model,
-        clip(project.title, 300) + " · " + clip(payload.instruction, 500),
+        clip(project.title, 300) + (payload.episode && typeof payload.episode.number === "number" ? " · " + payload.episode.number + "화" : "") + " · " + clip(payload.instruction, 500),
         output,
         new Date().toISOString()
       )

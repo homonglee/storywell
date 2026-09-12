@@ -1,18 +1,19 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { BookMarked, BookOpenText, BrainCircuit, Check, ChevronRight, CircleAlert, Clock3, FileText, GitBranch, Lightbulb, LoaderCircle, Menu, MoreHorizontal, Plus, RotateCcw, Save, Search, ShieldCheck, Sparkles, Target, Users, WandSparkles, X, Feather } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BookMarked, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronRight, CircleAlert, Clock3, Download, FileText, GitBranch, Lightbulb, LoaderCircle, Menu, MoreHorizontal, Plus, RotateCcw, Save, Search, ShieldCheck, Sparkles, Target, Users, WandSparkles, X, Feather } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Toaster } from "@/components/ui/sonner";
-import { buildStory, createSampleProject, type ProjectInput, type StoryIdea, type StoryProject } from "@/lib/story-engine";
+import { buildStory, createSampleProject, type EpisodeDraft, type ProjectInput, type StoryIdea, type StoryProject } from "@/lib/story-engine";
 
 const genres = ["현대 판타지", "로맨스 판타지", "미스터리", "무협", "SF", "로맨스", "드라마"];
 const tones = ["빠르고 통쾌한", "서늘하지만 따뜻한", "유쾌하고 경쾌한", "묵직하고 서정적인", "긴장감 있고 어두운"];
@@ -20,6 +21,7 @@ type ModelTool = { name: string; title?: string; description: string; inputSchem
 type ModelContextDocument = Document & { modelContext?: { registerTool: (tool: ModelTool, options?: { signal?: AbortSignal }) => void | Promise<void> } };
 const initialForm: ProjectInput = { title: "", synopsis: "", genre: "현대 판타지", tone: "서늘하지만 따뜻한", targetEpisodes: 80 };
 type GenerationVersion = { id: string; action: "plan" | "episode" | "rewrite" | "analyze"; model: string; inputSummary: string; output: string; createdAt: string };
+type RewriteProposal = { original: string; revised: string; start: number; end: number; wholeEpisode: boolean; instruction: string };
 
 function formatDate(value?: string) {
   if (!value) return "방금";
@@ -29,6 +31,49 @@ function statusTone(status: string) {
   if (status === "done") return "bg-emerald-400";
   if (status === "draft") return "bg-amber-400";
   return "bg-slate-500";
+}
+
+function normalizeProject(project: StoryProject): StoryProject {
+  if (project.content.episodeDrafts) return project;
+  const first = project.content.episodes[0];
+  const body = project.content.manuscript ?? "";
+  return {
+    ...project,
+    content: {
+      ...project.content,
+      episodeDrafts: body && first ? { "1": { episodeNumber: 1, title: first.title, body, status: "draft", revision: 1, updatedAt: project.updatedAt ?? new Date().toISOString() } } : {},
+    },
+  };
+}
+
+function safeFilename(value: string) {
+  return value.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim() || "StoryWell-원고";
+}
+
+function episodeBody(project: StoryProject, episodeNumber: number) {
+  return project.content.episodeDrafts?.[String(episodeNumber)]?.body ?? (episodeNumber === 1 ? project.content.manuscript ?? "" : "");
+}
+
+function updateEpisodeDraft(project: StoryProject, episodeNumber: number, body: string, status: EpisodeDraft["status"] = "draft") {
+  const episode = project.content.episodes.find((item) => item.number === episodeNumber);
+  const previous = project.content.episodeDrafts?.[String(episodeNumber)];
+  const draft: EpisodeDraft = {
+    episodeNumber,
+    title: episode?.title ?? episodeNumber + "화",
+    body,
+    status,
+    revision: (previous?.revision ?? 0) + 1,
+    updatedAt: new Date().toISOString(),
+  };
+  return {
+    ...project,
+    content: {
+      ...project.content,
+      manuscript: episodeNumber === 1 ? body : project.content.manuscript,
+      episodeDrafts: { ...(project.content.episodeDrafts ?? {}), [String(episodeNumber)]: draft },
+      episodes: project.content.episodes.map((item) => item.number === episodeNumber ? { ...item, status, words: body.length } : item),
+    },
+  };
 }
 
 function mergeAIPlan(base: StoryProject["content"], result: Partial<StoryProject["content"]>) {
@@ -61,6 +106,9 @@ export default function StoryStudio() {
   const [aiTask, setAiTask] = useState<string | null>(null);
   const [versions, setVersions] = useState<GenerationVersion[]>([]);
   const [versionTick, setVersionTick] = useState(0);
+  const [rewriteInstruction, setRewriteInstruction] = useState("");
+  const [rewriteProposal, setRewriteProposal] = useState<RewriteProposal | null>(null);
+  const manuscriptRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -71,8 +119,9 @@ export default function StoryStudio() {
       })
       .then((data) => {
         if (!active) return;
-        setProjects(data.projects);
-        if (data.projects.length) setCurrent(data.projects[0]);
+        const normalized = data.projects.map(normalizeProject);
+        setProjects(normalized);
+        if (normalized.length) setCurrent(normalized[0]);
       })
       .catch(() => toast.info("샘플 작품으로 시작합니다. 새 작품은 정상적으로 저장할 수 있습니다."))
       .finally(() => active && setLoading(false));
@@ -110,7 +159,7 @@ export default function StoryStudio() {
     });
     const data = (await response.json()) as { project?: StoryProject; updatedAt?: string; error?: string };
     if (!response.ok) throw new Error(data.error ?? "저장하지 못했습니다.");
-    return data.project ?? { ...project, updatedAt: data.updatedAt };
+    return normalizeProject(data.project ?? { ...project, updatedAt: data.updatedAt });
   }, []);
 
   const createProject = useCallback(async (input: ProjectInput) => {
@@ -165,6 +214,29 @@ export default function StoryStudio() {
   }, [createProject, current]);
 
   const updateContent = (patch: Partial<StoryProject["content"]>) => setCurrent((project) => ({ ...project, content: { ...project.content, ...patch } }));
+  const editActiveManuscript = (body: string) => setCurrent((project) => {
+    const episode = project.content.episodes.find((item) => item.number === activeEpisode);
+    const previous = project.content.episodeDrafts?.[String(activeEpisode)];
+    return {
+      ...project,
+      content: {
+        ...project.content,
+        manuscript: activeEpisode === 1 ? body : project.content.manuscript,
+        episodeDrafts: {
+          ...(project.content.episodeDrafts ?? {}),
+          [String(activeEpisode)]: {
+            episodeNumber: activeEpisode,
+            title: episode?.title ?? activeEpisode + "화",
+            body,
+            status: previous?.status ?? "draft",
+            revision: previous?.revision ?? 1,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+        episodes: project.content.episodes.map((item) => item.number === activeEpisode ? { ...item, status: "draft" as const, words: body.length } : item),
+      },
+    };
+  });
   const saveCurrent = async () => {
     setSaving(true);
     try {
@@ -177,6 +249,13 @@ export default function StoryStudio() {
     } finally {
       setSaving(false);
     }
+  };
+  const markEpisodeDone = async () => {
+    if (!activeManuscript.trim()) {
+      toast.error("완료로 표시할 원고가 없습니다.");
+      return;
+    }
+    await persistUpdated(updateEpisodeDraft(current, active.number, activeManuscript, "done"), active.number + "화를 완성 원고로 표시했습니다.");
   };
   const callAI = async (action: "plan" | "episode" | "rewrite" | "analyze", extra: Record<string, unknown> = {}) => {
     if (!aiConfigured) throw new Error("AI 연결이 필요합니다. OpenAI Developers 연결을 완료해 주세요.");
@@ -222,23 +301,44 @@ export default function StoryStudio() {
     try {
       const text = (await callAI("episode", { episode: active })) as string;
       if (!text?.trim()) throw new Error("생성된 원고가 비어 있습니다.");
-      const episodes = current.content.episodes.map((episode) => episode.number === active.number ? { ...episode, status: "draft" as const, words: text.length } : episode);
-      const updated = { ...current, content: { ...current.content, manuscript: text, episodes } };
+      const updated = updateEpisodeDraft(current, active.number, text);
       await persistUpdated(updated, active.number + "화 원고를 생성하고 버전으로 보관했습니다.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "회차 원고 생성에 실패했습니다.");
     }
   };
 
-  const rewriteManuscript = async (instruction: string) => {
+  const rewriteManuscript = async (instruction: string, forceWhole = false) => {
     try {
-      const text = (await callAI("rewrite", { instruction, selectedText: current.content.manuscript })) as string;
+      const body = episodeBody(current, active.number);
+      if (!body.trim()) throw new Error("먼저 원고를 입력하거나 AI로 이번 화를 집필해 주세요.");
+      const textarea = manuscriptRef.current;
+      const start = textarea?.selectionStart ?? 0;
+      const end = textarea?.selectionEnd ?? 0;
+      const hasSelection = !forceWhole && end > start;
+      const selectedText = hasSelection ? body.slice(start, end) : body;
+      const text = (await callAI("rewrite", {
+        instruction,
+        episode: active,
+        selectedText,
+        rewriteTarget: hasSelection ? "selection" : "episode",
+        beforeContext: hasSelection ? body.slice(Math.max(0, start - 1200), start) : "",
+        afterContext: hasSelection ? body.slice(end, end + 1200) : "",
+      })) as string;
       if (!text?.trim()) throw new Error("수정된 원고가 비어 있습니다.");
-      const updated = { ...current, content: { ...current.content, manuscript: text } };
-      await persistUpdated(updated, "수정 원고를 새 버전으로 보관했습니다.");
+      setRewriteProposal({ original: selectedText, revised: text, start: hasSelection ? start : 0, end: hasSelection ? end : body.length, wholeEpisode: !hasSelection, instruction });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "원고 재작성에 실패했습니다.");
     }
+  };
+
+  const applyRewrite = async () => {
+    if (!rewriteProposal) return;
+    const body = episodeBody(current, active.number);
+    const nextBody = body.slice(0, rewriteProposal.start) + rewriteProposal.revised + body.slice(rewriteProposal.end);
+    await persistUpdated(updateEpisodeDraft(current, active.number, nextBody), rewriteProposal.wholeEpisode ? "다듬은 원고를 적용하고 저장했습니다." : "선택 문단 수정안을 적용하고 저장했습니다.");
+    setRewriteProposal(null);
+    setRewriteInstruction("");
   };
 
   const analyzeContinuity = async () => {
@@ -262,7 +362,9 @@ export default function StoryStudio() {
     try {
       let content = { ...current.content };
       if (version.action === "episode" || version.action === "rewrite") {
-        content.manuscript = version.output;
+        const matchedEpisode = Number(version.inputSummary.match(/(\d+)화/)?.[1] ?? activeEpisode);
+        const restored = updateEpisodeDraft({ ...current, content }, matchedEpisode, version.output);
+        content = restored.content;
       } else if (version.action === "plan") {
         content = mergeAIPlan(content, JSON.parse(version.output) as Partial<StoryProject["content"]>);
       } else {
@@ -325,10 +427,36 @@ export default function StoryStudio() {
 
   const filteredProjects = projects.filter((project) => project.title.toLowerCase().includes(query.toLowerCase()));
   const active = current.content.episodes.find((item) => item.number === activeEpisode) ?? current.content.episodes[0];
+  const activeManuscript = episodeBody(current, active?.number ?? 1);
   const episodeSlice = current.content.episodes.slice(episodePage * 12, episodePage * 12 + 12);
   const totalEpisodePages = Math.ceil(current.content.episodes.length / 12);
   const drafted = current.content.episodes.filter((item) => item.status !== "planned").length;
   const completion = Math.round((drafted / current.content.episodes.length) * 100);
+  const exportProject = (format: "txt" | "md" | "json", scope: "episode" | "all" = "all") => {
+    const drafts = current.content.episodes
+      .map((episode) => ({ episode, body: episodeBody(current, episode.number) }))
+      .filter(({ body }) => Boolean(body.trim()));
+    const selected = scope === "episode" ? drafts.filter(({ episode }) => episode.number === active.number) : drafts;
+    let payload = "";
+    let mime = "text/plain;charset=utf-8";
+    if (format === "json") {
+      payload = JSON.stringify({ exportedAt: new Date().toISOString(), project: current }, null, 2);
+      mime = "application/json;charset=utf-8";
+    } else if (format === "md") {
+      payload = `# ${current.title}\n\n> ${current.genre} · ${current.tone} · 목표 ${current.targetEpisodes}화\n\n${current.synopsis}\n\n## 작품 설계\n\n- 로그라인: ${current.content.logline}\n- 주제: ${current.content.theme}\n- 세계관 규칙: ${current.content.worldRule}\n- 핵심 질문: ${current.content.centralQuestion}\n- 결말의 약속: ${current.content.endingPromise}\n\n## 등장인물\n\n${current.content.characters.map((character) => `### ${character.name} · ${character.role}\n\n- 욕망: ${character.desire}\n- 두려움: ${character.fear}\n- 비밀: ${character.secret}\n- 말투: ${character.voice}`).join("\n\n")}\n\n## 원고\n\n${selected.map(({ episode, body }) => `### ${episode.number}화. ${episode.title}\n\n${body}`).join("\n\n---\n\n")}`;
+      mime = "text/markdown;charset=utf-8";
+    } else {
+      payload = `${current.title}\n${current.genre} · ${current.tone}\n\n${selected.map(({ episode, body }) => `${episode.number}화. ${episode.title}\n\n${body}`).join("\n\n========================================\n\n")}`;
+    }
+    const blob = new Blob(["\uFEFF", payload], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${safeFilename(current.title)}-${scope === "episode" ? active.number + "화" : "전체원고"}.${format}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    toast.success(scope === "episode" ? active.number + "화 원고를 내보냈습니다." : "작품 원고를 내보냈습니다.");
+  };
   const submitProject = async (event: FormEvent) => {
     event.preventDefault();
     try { await createProject(form); } catch (error) { toast.error(error instanceof Error ? error.message : "작품을 만들지 못했습니다."); }
@@ -346,6 +474,17 @@ export default function StoryStudio() {
         <div className="header-actions">
           <span className={"ai-state " + (aiConfigured ? "ready" : "pending")}><Sparkles />{aiConfigured ? aiModel + " 연결됨" : "AI 연결 필요"}</span>
           <span className="save-state"><span className="save-dot" />{saving ? "저장 중" : "변경사항 보호됨"}</span>
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<Button variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white"><Download />내보내기</Button>} />
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>원고 파일</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => exportProject("txt", "episode")}>현재 회차 · TXT</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => exportProject("txt")}>전체 원고 · TXT</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportProject("md")}>작품 설계 포함 · Markdown</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportProject("json")}>백업 데이터 · JSON</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={saveCurrent} disabled={saving}><Save />저장</Button>
         </div>
       </header>
@@ -428,19 +567,21 @@ export default function StoryStudio() {
             </TabsContent>
 
             <TabsContent value="writing" className="tab-panel writing-panel">
-              <aside className="episode-rail"><span>회차</span>{current.content.episodes.slice(0, 14).map((episode) => <button key={episode.number} className={activeEpisode === episode.number ? "active" : ""} onClick={() => setActiveEpisode(episode.number)}>{episode.number}</button>)}</aside>
+              <aside className="episode-rail"><span>회차</span>{current.content.episodes.map((episode) => <button key={episode.number} title={episode.title} className={activeEpisode === episode.number ? "active" : ""} onClick={() => setActiveEpisode(episode.number)}>{episode.number}<i className={statusTone(episode.status)} /></button>)}</aside>
               <section className="manuscript">
-                <div className="manuscript-head"><div><span>EPISODE {String(active.number).padStart(3, "0")}</span><h2>{active.title}</h2></div><Badge className="draft-badge">초안</Badge></div>
+                <div className="manuscript-head"><div><span>EPISODE {String(active.number).padStart(3, "0")}</span><h2>{active.title}</h2></div><Badge className="draft-badge">{active.status === "done" ? "완성" : activeManuscript ? "초안" : "미집필"}</Badge></div>
                 <div className="episode-brief"><div><Target /><span><small>이번 화 목표</small>{active.beat}</span></div><div><Sparkles /><span><small>마지막 훅</small>{active.hook}</span></div></div>
-                <Textarea className="manuscript-editor" value={current.content.manuscript} onChange={(event) => updateContent({ manuscript: event.target.value })} aria-label={active.number + "화 원고"} />
-                <div className="manuscript-footer"><span>{current.content.manuscript.length.toLocaleString()}자</span><span>대사 24%</span><span>문장 반복 0건</span><Button onClick={saveCurrent} disabled={saving}><Save />원고 저장</Button></div>
+                <Textarea ref={manuscriptRef} className="manuscript-editor" value={activeManuscript} onChange={(event) => editActiveManuscript(event.target.value)} placeholder={active.number + "화 원고를 직접 쓰거나 AI로 집필하세요."} aria-label={active.number + "화 원고"} />
+                <div className="manuscript-footer"><span>{activeManuscript.length.toLocaleString()}자</span><span>{activeManuscript.trim() ? activeManuscript.trim().split(/\s+/).length.toLocaleString() : 0}어절</span><span>리비전 {current.content.episodeDrafts?.[String(active.number)]?.revision ?? 0}</span><Button variant="outline" onClick={markEpisodeDone} disabled={saving || !activeManuscript.trim()}><CheckCircle2 />완료 표시</Button><Button onClick={saveCurrent} disabled={saving}><Save />원고 저장</Button></div>
               </section>
               <aside className="writing-assistant">
                 <div className="assistant-title"><BrainCircuit /><div><strong>집필 조력자</strong><span>기억 {current.content.memories?.length ?? 0}개 · 현재 회차 맥락 연결</span></div></div>
                 <div className="assistant-check"><h3>이번 화 체크</h3><p><Check />주인공의 목표가 분명함</p><p><Check />이전 화 감정선 연결</p><p><CircleAlert />도진의 호칭 복선 확인</p></div>
                 <Button className="assistant-generate episode-generate" onClick={generateEpisode} disabled={Boolean(aiTask)}>{aiTask === "episode" ? <LoaderCircle className="animate-spin" /> : <Feather />}{aiTask === "episode" ? "원고를 집필하는 중…" : "AI로 이번 화 집필"}</Button>
-                <div className="assistant-actions"><button onClick={() => rewriteManuscript("대사를 더 짧고 날카롭게 다듬어라.")} disabled={Boolean(aiTask)}>대사를 더 날카롭게</button><button onClick={() => rewriteManuscript("감정을 직접 설명하지 말고 행동과 감각으로 더 섬세하게 보여줘라.")} disabled={Boolean(aiTask)}>감정선을 더 섬세하게</button><button onClick={() => rewriteManuscript("마지막 장면의 긴장과 클리프행어를 강화하라.")} disabled={Boolean(aiTask)}>마지막 훅 강화</button></div>
-                <Button className="assistant-generate" variant="outline" onClick={() => rewriteManuscript("문장 반복을 줄이고 장면 전환과 호흡을 매끄럽게 다듬어라.")} disabled={Boolean(aiTask)}>{aiTask === "rewrite" ? <LoaderCircle className="animate-spin" /> : <Sparkles />}{aiTask === "rewrite" ? "원고를 다듬는 중…" : "원고 전체 다듬기"}</Button>
+                <p className="selection-hint">문장을 선택하면 그 부분만, 선택하지 않으면 회차 전체를 수정합니다. 결과는 적용 전에 비교할 수 있습니다.</p>
+                <div className="assistant-actions"><button onClick={() => rewriteManuscript("대사를 더 짧고 날카롭게 다듬어라.")} disabled={Boolean(aiTask)}>대사를 더 날카롭게</button><button onClick={() => rewriteManuscript("감정을 직접 설명하지 말고 행동과 감각으로 더 섬세하게 보여줘라.")} disabled={Boolean(aiTask)}>감정선을 더 섬세하게</button><button onClick={() => rewriteManuscript("사건 진행 속도를 높이고 불필요한 설명을 덜어내라.")} disabled={Boolean(aiTask)}>전개 속도 높이기</button><button onClick={() => rewriteManuscript("마지막 장면의 긴장과 클리프행어를 강화하라.")} disabled={Boolean(aiTask)}>마지막 훅 강화</button></div>
+                <div className="custom-rewrite"><Textarea value={rewriteInstruction} onChange={(event) => setRewriteInstruction(event.target.value)} placeholder="예: 주인공의 불안을 직접 설명하지 말고 손동작으로 보여줘" /><Button variant="outline" onClick={() => rewriteManuscript(rewriteInstruction)} disabled={Boolean(aiTask) || !rewriteInstruction.trim()}>{aiTask === "rewrite" ? <LoaderCircle className="animate-spin" /> : <Sparkles />}맞춤 수정안</Button></div>
+                <Button className="assistant-generate" variant="outline" onClick={() => rewriteManuscript("문장 반복을 줄이고 장면 전환과 호흡을 매끄럽게 다듬어라.", true)} disabled={Boolean(aiTask)}>{aiTask === "rewrite" ? <LoaderCircle className="animate-spin" /> : <Sparkles />}{aiTask === "rewrite" ? "원고를 다듬는 중…" : "원고 전체 다듬기"}</Button>
               </aside>
             </TabsContent>
 
@@ -494,6 +635,17 @@ export default function StoryStudio() {
             </div>
             <DialogFooter><Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>취소</Button><Button type="submit" className="magic-button" disabled={saving}><WandSparkles />{saving ? "설계하는 중…" : "전체 이야기 설계"}</Button></DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(rewriteProposal)} onOpenChange={(open) => !open && setRewriteProposal(null)}>
+        <DialogContent className="rewrite-dialog sm:max-w-5xl">
+          <DialogHeader><DialogTitle>AI 정밀 편집 비교</DialogTitle><DialogDescription>{rewriteProposal?.wholeEpisode ? active.number + "화 전체 수정안" : "선택한 문단만 수정한 제안"}입니다. 원문은 그대로 보존되며, 적용을 눌러야 바뀝니다.</DialogDescription></DialogHeader>
+          <div className="rewrite-compare">
+            <section><span>원문</span><div>{rewriteProposal?.original}</div></section>
+            <section><span>수정안</span><div>{rewriteProposal?.revised}</div></section>
+          </div>
+          <DialogFooter><Button variant="ghost" onClick={() => setRewriteProposal(null)}>원문 유지</Button><Button onClick={applyRewrite} disabled={saving}><Check />수정안 적용</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </main>
