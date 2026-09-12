@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { createOpenAIResponse, requireOpenAIConfig } from "@/lib/server/openai";
+import { createOpenAIResponse, selectOpenAIModel } from "@/lib/server/openai";
 
 type Action = "plan" | "episode" | "rewrite" | "analyze";
 type Payload = {
@@ -11,6 +11,7 @@ type Payload = {
   rewriteTarget?: "selection" | "episode";
   beforeContext?: string;
   afterContext?: string;
+  model?: string;
 };
 
 const planSchema = {
@@ -250,18 +251,15 @@ async function rememberGeneration(request: Request, payload: Payload, action: Ac
 }
 
 export async function POST(request: Request) {
-  let model: string;
-  try {
-    model = requireOpenAIConfig().model;
-  } catch {
-    return Response.json(
-      { error: "AI 연결이 아직 완료되지 않았습니다.", code: "AI_NOT_CONFIGURED" },
-      { status: 503, headers: { "Cache-Control": "no-store" } }
-    );
-  }
-
   try {
     const payload = (await request.json()) as Payload;
+    let model: string;
+    try {
+      model = selectOpenAIModel(payload.model);
+    } catch (error) {
+      const message = error instanceof Error && error.message === "AI_NOT_CONFIGURED" ? "AI 연결이 아직 완료되지 않았습니다." : error instanceof Error ? error.message : "AI 모델을 확인해 주세요.";
+      return Response.json({ error: message, code: message.includes("연결") ? "AI_NOT_CONFIGURED" : "INVALID_MODEL" }, { status: message.includes("연결") ? 503 : 400, headers: { "Cache-Control": "no-store" } });
+    }
     const action = payload.action;
     if (!action || !["plan", "episode", "rewrite", "analyze"].includes(action)) {
       return Response.json({ error: "지원하지 않는 생성 작업입니다." }, { status: 400 });

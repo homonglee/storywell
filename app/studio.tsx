@@ -22,6 +22,13 @@ type ModelContextDocument = Document & { modelContext?: { registerTool: (tool: M
 const initialForm: ProjectInput = { title: "", synopsis: "", genre: "현대 판타지", tone: "서늘하지만 따뜻한", targetEpisodes: 80 };
 type GenerationVersion = { id: string; action: "plan" | "episode" | "rewrite" | "analyze"; model: string; inputSummary: string; output: string; createdAt: string };
 type RewriteProposal = { original: string; revised: string; start: number; end: number; wholeEpisode: boolean; instruction: string };
+type ModelOption = { id: string; label: string; note: string };
+const defaultModelOptions: ModelOption[] = [
+  { id: "gpt-5.6-terra", label: "GPT-5.6 Terra", note: "균형 잡힌 창작" },
+  { id: "gpt-5.6-sol", label: "GPT-5.6 Sol", note: "깊이 있는 설계" },
+  { id: "gpt-5.6-luna", label: "GPT-5.6 Luna", note: "빠른 초안 작업" },
+  { id: "gpt-6-astra", label: "GPT-6 Astra", note: "복잡한 창작 작업" },
+];
 
 function formatDate(value?: string) {
   if (!value) return "방금";
@@ -104,6 +111,7 @@ export default function StoryStudio() {
   const [query, setQuery] = useState("");
   const [aiConfigured, setAiConfigured] = useState(false);
   const [aiModel, setAiModel] = useState("gpt-5.6-terra");
+  const [modelOptions, setModelOptions] = useState<ModelOption[]>(defaultModelOptions);
   const [aiTask, setAiTask] = useState<string | null>(null);
   const [versions, setVersions] = useState<GenerationVersion[]>([]);
   const [versionTick, setVersionTick] = useState(0);
@@ -144,9 +152,13 @@ export default function StoryStudio() {
     fetch("/api/ai/status")
       .then((response) => response.json())
       .then((value) => {
-        const data = value as { configured?: boolean; model?: string };
+        const data = value as { configured?: boolean; model?: string; models?: string[] };
         setAiConfigured(Boolean(data.configured));
-        if (data.model) setAiModel(data.model);
+        const models = data.models?.length ? data.models : defaultModelOptions.map((item) => item.id);
+        setModelOptions(models.map((id) => defaultModelOptions.find((item) => item.id === id) ?? { id, label: id, note: "연결된 모델" }));
+        const saved = window.localStorage.getItem("storywell-ai-model");
+        if (saved && models.includes(saved)) setAiModel(saved);
+        else if (data.model) setAiModel(data.model);
       })
       .catch(() => setAiConfigured(false));
   }, []);
@@ -265,7 +277,7 @@ export default function StoryStudio() {
       const response = await fetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, project: current, ...extra }),
+        body: JSON.stringify({ action, project: current, model: aiModel, ...extra }),
       });
       const data = (await response.json()) as { result?: unknown; error?: string; model?: string };
       if (!response.ok) throw new Error(data.error ?? "AI 생성에 실패했습니다.");
@@ -462,6 +474,11 @@ export default function StoryStudio() {
     event.preventDefault();
     try { await createProject(form); } catch (error) { toast.error(error instanceof Error ? error.message : "작품을 만들지 못했습니다."); }
   };
+  const chooseModel = (model: string) => {
+    setAiModel(model);
+    window.localStorage.setItem("storywell-ai-model", model);
+    toast.success(model + "을(를) 다음 AI 작업에 사용합니다.");
+  };
 
   return (
     <main className="min-h-screen bg-[var(--ink)] text-[var(--paper)]">
@@ -474,7 +491,14 @@ export default function StoryStudio() {
         <div className="project-crumb"><BookMarked /><span>{current.title}</span></div>
         <div className="header-actions">
           <Button variant="outline" className="manual-button" onClick={() => setManualOpen(true)}><BookOpenText />사용자매뉴얼</Button>
-          <span className={"ai-state " + (aiConfigured ? "ready" : "pending")}><Sparkles />{aiConfigured ? aiModel + " 연결됨" : "AI 연결 필요"}</span>
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<Button variant="outline" className={"model-selector " + (aiConfigured ? "ready" : "pending")} disabled={!aiConfigured}><Sparkles />{aiConfigured ? aiModel : "AI 연결 필요"}</Button>} />
+            <DropdownMenuContent align="end" className="model-menu w-64">
+              <DropdownMenuLabel>AI 모델 선택</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {modelOptions.map((option) => <DropdownMenuItem key={option.id} className={option.id === aiModel ? "selected-model" : ""} onClick={() => chooseModel(option.id)}><span><strong>{option.label}</strong><small>{option.note}</small></span>{option.id === aiModel ? <Check /> : null}</DropdownMenuItem>)}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <span className="save-state"><span className="save-dot" />{saving ? "저장 중" : "변경사항 보호됨"}</span>
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white"><Download />내보내기</Button>} />
