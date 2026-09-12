@@ -39,6 +39,23 @@ export type StoryIdea = {
   energy: "긴장" | "감정" | "반전" | "확장";
 };
 
+export type StoryMemory = {
+  category: "인물" | "관계" | "사건" | "시간" | "장소" | "물건" | "정보" | "세계관";
+  subject: string;
+  fact: string;
+  episode: number;
+  confidence: number;
+  locked: boolean;
+};
+
+export type ContinuityIssue = {
+  severity: "오류" | "경고" | "확인";
+  category: string;
+  title: string;
+  evidence: string;
+  suggestion: string;
+};
+
 export type StoryContent = {
   logline: string;
   theme: string;
@@ -50,6 +67,9 @@ export type StoryContent = {
   foreshadows: Foreshadow[];
   ideas: StoryIdea[];
   manuscript: string;
+  memories?: StoryMemory[];
+  issues?: ContinuityIssue[];
+  currentSummary?: string;
 };
 
 export type StoryProject = {
@@ -228,6 +248,12 @@ export function buildStory(input: ProjectInput): StoryContent {
     ],
     manuscript:
       "비가 오지 않았는데도 골목은 젖어 있었다.\n\n서윤은 멈춘 손목시계를 귀에 가져갔다. 초침은 움직이지 않았지만, 아주 가까이에서 누군가 문을 두드리는 소리가 났다. 세 번. 잠시 멎었다가 다시 두 번.\n\n그 시각은 어젯밤과 같았다. 11시 47분.\n\n‘우연일 리 없어.’\n\n고개를 들자 골목 끝에 한 남자가 서 있었다. 우산도 없이 비어 있는 하늘을 올려다보던 그는 서윤과 눈이 마주치자 오래 기다렸다는 듯 웃었다.\n\n“이번에는 늦지 않았네요.”\n\n서윤은 그를 처음 봤다. 그런데 남자는 서윤이 가장 싫어하는 옛 호칭으로 그녀를 불렀다.\n\n그 순간, 멈췄던 초침이 거꾸로 움직이기 시작했다.",
+    memories: [
+      { category: "물건", subject: "멈춘 손목시계", fact: "11시 47분에 멈춰 있으며 가까이 대면 문 두드리는 소리가 난다.", episode: 1, confidence: 98, locked: true },
+      { category: "인물", subject: "서윤", fact: "도진을 처음 본다고 생각하지만 그가 사용한 옛 호칭에 반응한다.", episode: 1, confidence: 92, locked: false },
+    ],
+    issues: [],
+    currentSummary: "서윤은 멈춘 손목시계의 이상 현상을 확인하고 자신을 과거의 호칭으로 부르는 도진과 처음 마주쳤다.",
   };
 }
 

@@ -18,3 +18,24 @@ export const storyProjects = sqliteTable(
   },
   (table) => [index("idx_story_projects_owner_updated").on(table.ownerId, table.updatedAt)]
 );
+
+export const storyGenerations = sqliteTable(
+  "story_generations",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    projectId: text("project_id").notNull(),
+    action: text("action").notNull(),
+    model: text("model").notNull(),
+    inputSummary: text("input_summary").notNull(),
+    output: text("output").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_story_generations_owner_project_created").on(
+      table.ownerId,
+      table.projectId,
+      table.createdAt
+    ),
+  ]
+);

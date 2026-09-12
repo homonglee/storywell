@@ -8,6 +8,13 @@
       "when": 1789202801009,
       "tag": "0000_legal_revanche",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1789203638693,
+      "tag": "0001_smooth_naoko",
+      "breakpoints": true
     }
   ]
 }
