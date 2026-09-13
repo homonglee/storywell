@@ -1,5 +1,5 @@
 import "server-only";
-import { env } from "cloudflare:workers";
+import { env } from "@/lib/server/runtime";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 export const SUPPORTED_OPENAI_MODELS = ["gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-6-astra"] as const;

@@ -69,7 +69,7 @@ function deleteRequest(owner = 'owner-a') {
 const params = () => ({ params: Promise.resolve({ id: 'project-a' }) });
 function generationRoute(DB, provider) {
   return loadTS('app/api/ai/generate/route.ts', {
-    'cloudflare:workers': { env: { DB } },
+    '@/lib/server/runtime': { env: { DB } },
     '@/lib/server/openai': { selectOpenAIModel: () => 'gpt-5.6-terra', createOpenAIResponse: provider },
   });
 }
@@ -85,7 +85,7 @@ test('deletion removes the selected owner project and its history only', async t
   const f = fixture(t);
   f.insertHistory('a-history', 'project-a', 'owner-a');
   f.insertHistory('b-history', 'project-b', 'owner-b');
-  const route = loadTS('app/api/projects/[id]/route.ts', { 'cloudflare:workers': { env: { DB: f.DB } } });
+  const route = loadTS('app/api/projects/[id]/route.ts', { '@/lib/server/runtime': { env: { DB: f.DB } } });
   assert.equal((await route.DELETE(deleteRequest(), params())).status, 200);
   assert.equal(f.count('story_projects'), 1);
   assert.equal(f.count('story_generations'), 1);
@@ -96,7 +96,7 @@ test('deletion removes the selected owner project and its history only', async t
 test('another owner cannot delete a project or its history', async t => {
   const f = fixture(t);
   f.insertHistory('a-history', 'project-a', 'owner-a');
-  const route = loadTS('app/api/projects/[id]/route.ts', { 'cloudflare:workers': { env: { DB: f.DB } } });
+  const route = loadTS('app/api/projects/[id]/route.ts', { '@/lib/server/runtime': { env: { DB: f.DB } } });
   assert.equal((await route.DELETE(deleteRequest('owner-b'), params())).status, 404);
   assert.equal(f.count('story_projects'), 2);
   assert.equal(f.count('story_generations'), 1);
@@ -105,7 +105,7 @@ test('another owner cannot delete a project or its history', async t => {
 test('a failed project deletion rolls back history removal', async t => {
   const f = fixture(t, { failProjectDelete: true });
   f.insertHistory('a-history', 'project-a', 'owner-a');
-  const route = loadTS('app/api/projects/[id]/route.ts', { 'cloudflare:workers': { env: { DB: f.DB } } });
+  const route = loadTS('app/api/projects/[id]/route.ts', { '@/lib/server/runtime': { env: { DB: f.DB } } });
   assert.equal((await route.DELETE(deleteRequest(), params())).status, 500);
   assert.equal(f.count('story_projects'), 2);
   assert.equal(f.count('story_generations'), 1);
@@ -204,7 +204,7 @@ test('legacy targets default to 5000 and rebuilding a plan preserves goals by ep
 
 test('per-episode goals survive create, update and reload with manuscript contents intact', async t => {
   const f = fixture(t);
-  const bindings = { 'cloudflare:workers': { env: { DB: f.DB } } };
+  const bindings = { '@/lib/server/runtime': { env: { DB: f.DB } } };
   const collection = loadTS('app/api/projects/route.ts', bindings);
   const item = loadTS('app/api/projects/[id]/route.ts', bindings);
   const content = { episodes: [{ number: 1, targetCharacters: 3200 }, { number: 2, targetCharacters: 7600 }],
@@ -229,7 +229,7 @@ test('per-episode goals survive create, update and reload with manuscript conten
 
 test('invalid targets are rejected by create and update without changing saved data', async t => {
   const f = fixture(t);
-  const bindings = { 'cloudflare:workers': { env: { DB: f.DB } } };
+  const bindings = { '@/lib/server/runtime': { env: { DB: f.DB } } };
   const collection = loadTS('app/api/projects/route.ts', bindings);
   const item = loadTS('app/api/projects/[id]/route.ts', bindings);
   for (const targetCharacters of [0, -1, 1.5, 20001, '4000', null]) {
@@ -301,7 +301,7 @@ test('all character fields and new story targets persist through create, edit, a
   const f = fixture(t);
   const { buildStory } = loadTS('lib/story-engine.ts');
   const { createCharacterDraft, saveCharacterInProject, removeCharacterFromProject } = loadTS('lib/character-editor.ts');
-  const bindings = { 'cloudflare:workers': { env: { DB: f.DB } } };
+  const bindings = { '@/lib/server/runtime': { env: { DB: f.DB } } };
   const collection = loadTS('app/api/projects/route.ts', bindings);
   const item = loadTS('app/api/projects/[id]/route.ts', bindings);
   const headers = { 'Content-Type': 'application/json', 'oai-authenticated-user-id': 'owner-a' };
@@ -328,7 +328,7 @@ test('all character fields and new story targets persist through create, edit, a
 
 test('blank character names and failed saves do not overwrite saved characters', async t => {
   const f = fixture(t, { failProjectUpdate: true });
-  const bindings = { 'cloudflare:workers': { env: { DB: f.DB } } };
+  const bindings = { '@/lib/server/runtime': { env: { DB: f.DB } } };
   const collection = loadTS('app/api/projects/route.ts', bindings);
   const item = loadTS('app/api/projects/[id]/route.ts', bindings);
   const headers = { 'Content-Type': 'application/json', 'oai-authenticated-user-id': 'owner-a' };
@@ -505,7 +505,7 @@ test('episode context includes the selected chapter and excludes future drafts b
 
 test('progress snapshots are owner scoped, bounded and expire', async t => {
   const f = fixture(t);
-  const bindings = { 'cloudflare:workers': { env: { DB: f.DB } } };
+  const bindings = { '@/lib/server/runtime': { env: { DB: f.DB } } };
   const { createProgressReporter } = loadTS('lib/server/ai-progress.ts', bindings);
   const route = loadTS('app/api/ai/progress/route.ts', bindings);
   const id = crypto.randomUUID();
@@ -543,4 +543,84 @@ test('buffered connections still report progress before the final response arriv
   assert.ok(events.some(event => event.type === 'preview' && event.text === '실제로 생성 중인 원고'));
   finish(Response.json({ result: '완료 원고' }));
   assert.equal((await pending).result, '완료 원고');
+});
+
+test('private Vercel access rejects missing and incorrect credentials', async () => {
+  const { validPrivateAccess, sameOriginMutation } = loadTS('lib/server/private-access.ts');
+  const password = 'test-only-strong-password';
+  const basic = value => 'Basic ' + Buffer.from(value).toString('base64');
+  assert.equal(await validPrivateAccess(basic('storywell:' + password), undefined), false);
+  assert.equal(await validPrivateAccess(basic('storywell:' + password), 'short'), false);
+  assert.equal(await validPrivateAccess(basic('other:' + password), password), false);
+  assert.equal(await validPrivateAccess(basic('storywell:wrong'), password), false);
+  assert.equal(await validPrivateAccess(basic('storywell:' + password), password), true);
+  assert.equal(sameOriginMutation(new Request('https://storywell.test/api/projects', {method:'POST',headers:{origin:'https://attacker.test'}})), false);
+  assert.equal(sameOriginMutation(new Request('https://storywell.test/api/projects', {method:'POST',headers:{origin:'https://storywell.test'}})), true);
+});
+
+test('Vercel proxy fails closed, strips forged owner headers, and preserves Sites access', async t => {
+  const old = process.env.STORYWELL_ACCESS_PASSWORD;
+  t.after(()=>{ if(old===undefined) delete process.env.STORYWELL_ACCESS_PASSWORD; else process.env.STORYWELL_ACCESS_PASSWORD=old; });
+  const env = { IS_VERCEL: true };
+  const { proxy } = loadTS('proxy.ts', { '@/lib/server/runtime':{env}, 'next/server': { NextResponse:{ next: options => options ?? { sites: true } } } });
+  delete process.env.STORYWELL_ACCESS_PASSWORD;
+  assert.equal((await proxy(new Request('https://storywell.test/api/projects'))).status, 503);
+  process.env.STORYWELL_ACCESS_PASSWORD = 'test-only-strong-password';
+  assert.equal((await proxy(new Request('https://storywell.test/api/ai/generate'))).status, 401);
+  const result = await proxy(new Request('https://storywell.test/api/projects', {headers:{authorization:'Basic '+Buffer.from('storywell:'+process.env.STORYWELL_ACCESS_PASSWORD).toString('base64'),'oai-authenticated-user-id':'victim','oai-authenticated-user-email':'forged@example.test'}}));
+  assert.equal(result.request.headers.get('oai-authenticated-user-id'), 'private-owner');
+  assert.equal(result.request.headers.has('oai-authenticated-user-email'), false);
+  env.IS_VERCEL = false;
+  assert.equal((await proxy(new Request('https://storywell.test'))).sites, true);
+});
+
+test('Postgres adapter preserves quoted question marks and binds values separately', async () => {
+  const { postgresPlaceholders, PostgresStatement } = loadTS('lib/server/postgres-database.ts', { postgres: () => { throw new Error('No connection expected'); } });
+  assert.equal(postgresPlaceholders("SELECT '?' AS marker FROM story_projects WHERE id = ? AND owner_id = ?"), "SELECT '?' AS marker FROM story_projects WHERE id = $1 AND owner_id = $2");
+  let received;
+  const statement = new PostgresStatement('UPDATE story_projects SET title = ? WHERE id = ?', [], async (sql,args)=>{ received={sql,args}; return Object.assign([], {count:1}); });
+  const result = await statement.bind("'; DROP TABLE story_projects; --", 'owned-id').run();
+  assert.equal(received.sql, 'UPDATE story_projects SET title = ? WHERE id = ?');
+  assert.equal(received.args[0], "'; DROP TABLE story_projects; --");
+  assert.equal(result.meta.changes, 1);
+});
+
+test('Vercel plan continuation completes all batches and records only the final plan', async t => {
+  const f = fixture(t);
+  const { buildStory } = loadTS('lib/story-engine.ts');
+  const project = {...f.project,targetEpisodes:21,content:buildStory({...f.project,targetEpisodes:21})};
+  const bible = { logline:'배달',theme:'회복',worldRule:'조류',centralQuestion:'믿음',endingPromise:'귀환',characters:[{name:'나린'}],foreshadows:[],ideas:[],arcOutline:'항해' };
+  let calls=0;
+  const route = loadTS('app/api/ai/generate/route.ts', {
+    '@/lib/server/runtime':{env:{DB:f.DB,IS_VERCEL:true}},
+    '@/lib/server/openai':{selectOpenAIModel:()=> 'test-model',createOpenAIResponse:async body=>{
+      calls++;
+      if(body.text.format.name==='story_bible') return Response.json({output_text:JSON.stringify(bible)});
+      const first = calls===2 ? 1 : 21, last = calls===2 ? 20 : 21;
+      return Response.json({output_text:JSON.stringify({episodes:Array.from({length:last-first+1},(_,i)=>({number:first+i,title:'제목'+(first+i),beat:'사건'+(first+i),stage:'항해',emotion:'기대',hook:'단서'+(first+i)}))})});
+    }}
+  });
+  const first = await (await route.POST(generationRequest(project,undefined,{action:'plan'}))).json();
+  assert.ok(first.continuation); assert.equal(calls,1); assert.equal(f.count('story_generations'),0);
+  const second = await (await route.POST(generationRequest(project,undefined,{action:'plan',planCursor:first.continuation}))).json();
+  assert.equal(second.continuation.episodes.length,20); assert.equal(calls,2); assert.equal(f.count('story_generations'),0);
+  const third = await (await route.POST(generationRequest(project,undefined,{action:'plan',planCursor:second.continuation}))).json();
+  assert.equal(third.result.episodes.length,21); assert.equal(calls,3); assert.equal(f.count('story_generations'),1);
+});
+
+test('client follows plan continuations and cancellation stops the next request', async t => {
+  const { requestAI } = loadTS('lib/ai-request.ts');
+  let calls=0;
+  const controller=new AbortController();
+  t.mock.method(globalThis,'fetch',async (_url,init)=>{
+    calls++;
+    if(calls===1) return Response.json({continuation:{bible:{theme:'확인'},episodes:[]}});
+    assert.deepEqual(JSON.parse(init.body).planCursor.bible,{theme:'확인'});
+    return Response.json({result:{episodes:[{number:1}]}});
+  });
+  assert.equal((await requestAI({action:'plan'},controller.signal)).result.episodes.length,1);
+  assert.equal(calls,2);
+  calls=0;
+  await assert.rejects(requestAI({action:'plan'},controller.signal,()=>controller.abort()), error=>error.name==='AbortError');
+  assert.equal(calls,1);
 });

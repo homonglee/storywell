@@ -1,4 +1,4 @@
-export type AIResult = { result?: unknown; model?: string; error?: string; code?: string };
+export type AIResult = { result?: unknown; continuation?: { bible: Record<string, unknown>; episodes: Record<string, unknown>[] }; model?: string; error?: string; code?: string };
 export type AIProgress = { type: "progress" | "delta" | "preview"; message?: string; text?: string; completed?: number; total?: number };
 
 async function requestAIStream(payload: Record<string, unknown>, signal: AbortSignal, onProgress?: (event: AIProgress) => void): Promise<AIResult> {
@@ -52,7 +52,7 @@ export function isAIAbort(error: unknown) {
   return error instanceof Error && error.name === "AbortError";
 }
 
-export async function requestAI(payload: Record<string, unknown>, signal: AbortSignal, onProgress?: (event: AIProgress) => void): Promise<AIResult> {
+async function requestAIOnce(payload: Record<string, unknown>, signal: AbortSignal, onProgress?: (event: AIProgress) => void): Promise<AIResult> {
   signal.throwIfAborted();
   const progressId = crypto.randomUUID();
   const polling = new AbortController();
@@ -72,4 +72,18 @@ export async function requestAI(payload: Record<string, unknown>, signal: AbortS
   }, 2000);
   try { return await requestAIStream({ ...payload, progressId }, signal, onProgress); }
   finally { clearInterval(timer); polling.abort(); }
+}
+
+export async function requestAI(payload: Record<string, unknown>, signal: AbortSignal, onProgress?: (event: AIProgress) => void): Promise<AIResult> {
+  let next = payload;
+  for (let step = 0; step < 12; step++) {
+    signal.throwIfAborted();
+    const data = await requestAIOnce(next, signal, onProgress);
+    signal.throwIfAborted();
+    if (!data.continuation) return data;
+    if (payload.action !== "plan") throw new Error("예상하지 못한 AI 응답입니다.");
+    next = { ...payload, planCursor: data.continuation };
+    onProgress?.({ type: "progress", message: data.continuation.episodes.length + "화 설계 저장 대기 · 다음 구간을 이어갑니다." });
+  }
+  throw new Error("설계 진행 횟수를 초과했습니다. 기존 내용을 유지합니다.");
 }

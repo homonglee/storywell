@@ -1,4 +1,4 @@
-import { env } from "cloudflare:workers";
+import { env } from "@/lib/server/runtime";
 import { validProgressId } from "@/lib/server/ai-progress";
 
 export async function GET(request: Request) {
