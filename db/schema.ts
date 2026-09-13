@@ -39,3 +39,7 @@ export const storyGenerations = sqliteTable(
     ),
   ]
 );
+
+export const storyAIProgress = sqliteTable("story_ai_progress", {
+  id: text("id").primaryKey(), ownerId: text("owner_id").notNull(), payload: text("payload").notNull(), updatedAt: text("updated_at").notNull(),
+}, table => [index("idx_story_ai_progress_owner_updated").on(table.ownerId, table.updatedAt)]);

@@ -42,7 +42,7 @@ function fixture(t, options = {}) {
   const DB = {
     prepare(sql) {
       return { bind(...args) {
-        return { async all() { return { results: sqlite.prepare(sql).all(...args) }; }, async run() {
+        return { async first() { return sqlite.prepare(sql).get(...args) ?? null; }, async all() { return { results: sqlite.prepare(sql).all(...args) }; }, async run() {
           if (options.failProjectUpdate && sql.startsWith('UPDATE story_projects')) throw new Error('Simulated update failure');
           if (options.failProjectDelete && sql.startsWith('DELETE FROM story_projects')) throw new Error('Simulated database failure');
           const result = sqlite.prepare(sql).run(...args);
@@ -501,4 +501,46 @@ test('episode context includes the selected chapter and excludes future drafts b
   await route.POST(generationRequest(project, undefined, { episode: { number: 2 } }));
   const context = JSON.parse(sent.input.match(/<story_data>(\{.*?)<\/story_data>/s)[1]);
   assert.deepEqual(context.recentEpisodeDrafts.map(item => item.episodeNumber), [1, 2]);
+});
+
+test('progress snapshots are owner scoped, bounded and expire', async t => {
+  const f = fixture(t);
+  const bindings = { 'cloudflare:workers': { env: { DB: f.DB } } };
+  const { createProgressReporter } = loadTS('lib/server/ai-progress.ts', bindings);
+  const route = loadTS('app/api/ai/progress/route.ts', bindings);
+  const id = crypto.randomUUID();
+  const reporter = await createProgressReporter(new Request('https://storywell.test', { headers: { 'oai-authenticated-user-id': 'owner-a' } }), id);
+  reporter.update({ type: 'progress', message: '21~40화 설계 중', completed: 20, total: 80 });
+  reporter.update({ type: 'delta', text: '한'.repeat(2000) });
+  await reporter.finish();
+  const get = owner => route.GET(new Request('https://storywell.test/api/ai/progress?id=' + id, { headers: { 'oai-authenticated-user-id': owner } }));
+  const good = await get('owner-a');
+  assert.equal(good.status, 200);
+  const data = await good.json();
+  assert.equal(data.preview.length, 1200);
+  assert.equal(data.completed, 20);
+  assert.equal((await get('owner-b')).status, 404);
+  f.sqlite.prepare('UPDATE story_ai_progress SET updated_at = ? WHERE id = ?').run('2000-01-01T00:00:00.000Z', id);
+  assert.equal((await get('owner-a')).status, 404);
+  assert.equal((await route.GET(new Request('https://storywell.test/api/ai/progress?id=invalid'))).status, 400);
+});
+
+test('buffered connections still report progress before the final response arrives', async t => {
+  const { requestAI } = loadTS('lib/ai-request.ts');
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let finish;
+  const final = new Promise(resolve => { finish = resolve; });
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    if (url.startsWith('/api/ai/progress')) return Response.json({ message: '인물 설계 완료', preview: '실제로 생성 중인 원고' });
+    assert.ok(JSON.parse(init.body).progressId);
+    return final;
+  });
+  const events = [];
+  const pending = requestAI({ action: 'episode' }, new AbortController().signal, event => events.push(event));
+  t.mock.timers.tick(2000);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(events.some(event => event.message === '인물 설계 완료'));
+  assert.ok(events.some(event => event.type === 'preview' && event.text === '실제로 생성 중인 원고'));
+  finish(Response.json({ result: '완료 원고' }));
+  assert.equal((await pending).result, '완료 원고');
 });

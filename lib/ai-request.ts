@@ -1,7 +1,7 @@
 export type AIResult = { result?: unknown; model?: string; error?: string; code?: string };
-export type AIProgress = { type: "progress" | "delta"; message?: string; text?: string; completed?: number; total?: number };
+export type AIProgress = { type: "progress" | "delta" | "preview"; message?: string; text?: string; completed?: number; total?: number };
 
-export async function requestAI(payload: Record<string, unknown>, signal: AbortSignal, onProgress?: (event: AIProgress) => void): Promise<AIResult> {
+async function requestAIStream(payload: Record<string, unknown>, signal: AbortSignal, onProgress?: (event: AIProgress) => void): Promise<AIResult> {
   signal.throwIfAborted();
   const response = await fetch("/api/ai/generate", {
     method: "POST",
@@ -50,4 +50,26 @@ export async function requestAI(payload: Record<string, unknown>, signal: AbortS
 
 export function isAIAbort(error: unknown) {
   return error instanceof Error && error.name === "AbortError";
+}
+
+export async function requestAI(payload: Record<string, unknown>, signal: AbortSignal, onProgress?: (event: AIProgress) => void): Promise<AIResult> {
+  signal.throwIfAborted();
+  const progressId = crypto.randomUUID();
+  const polling = new AbortController();
+  const pollSignal = AbortSignal.any([signal, polling.signal]);
+  let pollingNow = false;
+  const timer = setInterval(() => {
+    if (pollingNow || pollSignal.aborted) return;
+    pollingNow = true;
+    void fetch("/api/ai/progress?id=" + progressId, { signal: pollSignal, cache: "no-store" })
+      .then(async response => {
+        if (!response.ok) return;
+        const state = await response.json() as { message?: string; preview?: string };
+        if (pollSignal.aborted) return;
+        if (state.message) onProgress?.({ type: "progress", message: state.message });
+        if (state.preview) onProgress?.({ type: "preview", text: state.preview });
+      }).catch(() => undefined).finally(() => { pollingNow = false; });
+  }, 2000);
+  try { return await requestAIStream({ ...payload, progressId }, signal, onProgress); }
+  finally { clearInterval(timer); polling.abort(); }
 }

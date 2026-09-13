@@ -340,6 +340,7 @@ export default function StoryStudio() {
     try {
       const data = await requestAI({ action, project: current, model: aiModel, ...extra }, controller.signal, event => {
         if (event.message) setAiProgress(event.message);
+        if (event.type === "preview" && event.text) setAiPreview(event.text);
         if (event.type === "delta" && event.text) setAiPreview(text => (text + event.text).slice(-1200));
       });
       controller.signal.throwIfAborted();

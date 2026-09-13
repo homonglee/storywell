@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { episodeOutputTokenBudget, getContentTargetError, getEpisodeTargetError, getTargetCharacters } from "@/lib/episode-target";
 import { selectOpenAIModel } from "@/lib/server/openai";
 
+import { createProgressReporter } from "@/lib/server/ai-progress";
 import { AIError, readAIResponse } from "@/lib/server/response-reader";
 import { planningProject } from "@/lib/story-planning";
 import { createSampleProject, type StoryProject } from "@/lib/story-engine";
@@ -9,6 +10,7 @@ import { createSampleProject, type StoryProject } from "@/lib/story-engine";
 type Action = "plan" | "episode" | "rewrite" | "analyze" | "ideas";
 type Payload = {
   action?: Action;
+  progressId?: string;
   project?: Record<string, unknown>;
   episode?: Record<string, unknown>;
   instruction?: string;
@@ -362,12 +364,13 @@ export async function POST(request: Request) {
     try { return Response.json(await generate(request, payload, action, model, signal, () => undefined), { headers: { "Cache-Control": "no-store" } }); }
     catch (error) { const problem = failure(error, request, signal); return Response.json(problem, { status: problem.status }); }
   }
+  const reporter = await createProgressReporter(request, payload.progressId);
   const encoder = new TextEncoder();
   const encode = (event: unknown) => encoder.encode(useSSE ? "data: " + JSON.stringify(event) + "\n\n" : JSON.stringify(event) + "\n");
   let closed = false;
   const stream = new ReadableStream<Uint8Array>({
     start(output) {
-      const emit: Emit = event => { if (!closed && !signal.aborted) output.enqueue(encode(event)); };
+      const emit: Emit = event => { reporter.update(event); if (!closed && !signal.aborted) output.enqueue(encode(event)); };
       emit({ type: "progress", message: "AI 연결을 시작합니다." });
       const heartbeat = setInterval(() => emit({ type: "ping" }), 10000);
       void generate(request, payload, action, model, signal, emit)
@@ -375,9 +378,10 @@ export async function POST(request: Request) {
         .catch(error => {
           const problem = failure(error, request, signal);
           console.error("storywell_ai_error", JSON.stringify({ action, model, code: problem.code, status: problem.status }));
+          reporter.update({ type: "error", ...problem });
           if (!closed) output.enqueue(encode({ type: "error", ...problem }));
         })
-        .finally(() => { clearInterval(heartbeat); if (!closed) { closed = true; output.close(); } });
+        .finally(async () => { clearInterval(heartbeat); await reporter.finish(); if (!closed) { closed = true; output.close(); } });
     },
     cancel() { closed = true; controller.abort(); },
   });
