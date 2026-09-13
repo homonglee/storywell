@@ -30,5 +30,5 @@ The new Postgres workspace does not automatically contain works from the Sites D
 Production URL: https://storywell-amber.vercel.app
 Initial deployment READY: e1bb32d, dpl_2JvFgTDn8pLL1r5dQhWbaVyy3rJi.
 Workspace/API are intentionally closed with HTTP 503 until the owner configures the private password.
-Neon integration terms and owner-entered secrets are pending; no Vercel data or AI generation has been tested yet.
+Neon Free database neon-amber-saddle is connected to storywell. DATABASE_URL and POSTGRES_URL are present (secret values not read). Owner-entered OPENAI_API_KEY and STORYWELL_ACCESS_PASSWORD are still pending; no authenticated Vercel data or AI generation has been tested yet.
 Vercel plans now continue across requests (bible, then at most 20 chapters each). The request timeout is 270 seconds under the 300-second platform limit.

@@ -2,7 +2,7 @@
 
 ## 현재 상태
 
-- StoryWell Ver2.0은 Vercel Homong's projects / storywell에 최초 배포 Ready 확인. 주소 https://storywell-amber.vercel.app . 현재 비밀번호·OpenAI 키·Neon 연결 설정 대기. 아래 버전 12는 별도로 유지 중인 기존 Sites 서비스이며 Vercel로 데이터가 자동 이전되지는 않음
+- StoryWell Ver2.0은 Vercel Homong's projects / storywell에 최초 배포 Ready 확인. 주소 https://storywell-amber.vercel.app . Neon 무료 저장소 연결 확인. 현재 비밀번호·OpenAI 키 입력 대기. 아래 버전 12는 별도로 유지 중인 기존 Sites 서비스이며 Vercel로 데이터가 자동 이전되지는 않음
 
 - 2026-09-13 18:28 KST, StoryWell 버전 12 게시 성공 확인
 - 사이트: https://storywell-webnovel-studio.homong-lee.chatgpt.site
@@ -186,3 +186,11 @@
 - 다른 Chrome 탭에 OPENAI_API_KEY, STORYWELL_ACCESS_PASSWORD 키 이름을 미리 입력. Secret / Production 선택, 값은 비어 있고 저장하지 않음. 사용자가 직접 값을 넣고 Save한 뒤 재배포 필요
 - 실제 Vercel DB 저장 및 AI 생성은 설정 완료 후 검증해야 함. 기존 Sites 자료는 유지되며 이전·삭제하지 않음
 - 다음 단계: Neon 동의 → 무료 요금제/DB 생성 및 storywell 연결 → 사용자 비밀값 저장 → 재배포 → 실제 저장·AI 검증
+
+## 2026-09-13 Neon 연결 확인
+
+- 사용자가 Neon 약관 및 연결 진행에 동의함. 재개 시 실제 Vercel 화면에서 neon-amber-saddle 저장소가 이미 생성된 상태였음
+- 요금제 Free 확인. 연결 대상 목록에서 storywell Connected 확인하여 중복 생성·연결하지 않음
+- 환경변수 목록에서 DATABASE_URL과 POSTGRES_URL 등록 확인. 연결 문자열 값은 열람·출력하지 않음
+- OPENAI_API_KEY와 STORYWELL_ACCESS_PASSWORD는 입력창의 키 이름으로만 존재하며 저장 목록에서는 확인되지 않음. 사용자에게 직접 값을 입력하고 Save하도록 요청함
+- 비밀값 저장 후 재배포, 인증된 작품 저장과 실제 AI 생성 검증이 남아 있음. 현재 DB 테이블 초기화·기존 Sites 자료 이전은 실행하지 않음
