@@ -51,9 +51,16 @@ export async function DELETE(
 ) {
   try {
     const { id } = await context.params;
-    await database().prepare("DELETE FROM story_projects WHERE id = ? AND owner_id = ?")
-      .bind(id, ownerId(request))
-      .run();
+    const db = database();
+    const owner = ownerId(request);
+    const results = await db.batch([
+      db.prepare("DELETE FROM story_generations WHERE project_id = ? AND owner_id = ? AND EXISTS (SELECT 1 FROM story_projects WHERE id = ? AND owner_id = ?)")
+        .bind(id, owner, id, owner),
+      db.prepare("DELETE FROM story_projects WHERE id = ? AND owner_id = ?").bind(id, owner),
+    ]);
+    if (!results[1].meta.changes) {
+      return Response.json({ error: "작품을 찾지 못했습니다." }, { status: 404 });
+    }
     return Response.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "삭제하지 못했습니다.";

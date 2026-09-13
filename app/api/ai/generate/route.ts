@@ -233,7 +233,7 @@ async function rememberGeneration(request: Request, payload: Payload, action: Ac
   const project = payload.project ?? {};
   try {
     await database
-      .prepare("INSERT INTO story_generations (id, owner_id, project_id, action, model, input_summary, output, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .prepare("INSERT INTO story_generations (id, owner_id, project_id, action, model, input_summary, output, created_at) SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM story_projects WHERE id = ? AND owner_id = ?)")
       .bind(
         crypto.randomUUID(),
         ownerId(request),
@@ -242,7 +242,9 @@ async function rememberGeneration(request: Request, payload: Payload, action: Ac
         model,
         clip(project.title, 300) + (payload.episode && typeof payload.episode.number === "number" ? " · " + payload.episode.number + "화" : "") + " · " + clip(payload.instruction, 500),
         output,
-        new Date().toISOString()
+        new Date().toISOString(),
+        clip(project.id, 100),
+        ownerId(request)
       )
       .run();
   } catch (error) {
@@ -251,7 +253,9 @@ async function rememberGeneration(request: Request, payload: Payload, action: Ac
 }
 
 export async function POST(request: Request) {
+  const signal = AbortSignal.any([request.signal, AbortSignal.timeout(55000)]);
   try {
+    signal.throwIfAborted();
     const payload = (await request.json()) as Payload;
     let model: string;
     try {
@@ -270,8 +274,6 @@ export async function POST(request: Request) {
 
     const structured = action === "plan" || action === "analyze";
     const schema = action === "plan" ? planSchema : analysisSchema;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 55000);
     const body: Record<string, unknown> = {
       model,
       reasoning: { effort: action === "plan" || action === "analyze" ? "medium" : "low" },
@@ -291,14 +293,9 @@ export async function POST(request: Request) {
       };
     }
 
-    let apiResponse: Response;
-    try {
-      apiResponse = await createOpenAIResponse(body, controller.signal);
-    } finally {
-      clearTimeout(timer);
-    }
-
+    const apiResponse = await createOpenAIResponse(body, signal);
     const response = (await apiResponse.json()) as Record<string, unknown>;
+    signal.throwIfAborted();
     if (!apiResponse.ok) {
       const apiError = response.error as Record<string, unknown> | undefined;
       const message =
@@ -312,7 +309,9 @@ export async function POST(request: Request) {
 
     const text = extractText(response);
     const result = structured ? JSON.parse(text) : text;
+    signal.throwIfAborted();
     await rememberGeneration(request, payload, action, model, text);
+    signal.throwIfAborted();
     return Response.json(
       {
         result,
@@ -323,8 +322,11 @@ export async function POST(request: Request) {
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (error) {
+    if (request.signal.aborted) {
+      return Response.json({ error: "AI 작업을 취소했습니다.", code: "AI_CANCELLED" }, { status: 499 });
+    }
     const message =
-      error instanceof Error && error.name === "AbortError"
+      signal.aborted || (error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name))
         ? "AI 생성 시간이 초과되었습니다. 범위를 줄여 다시 시도해 주세요."
         : error instanceof Error
           ? error.message

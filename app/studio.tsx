@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookMarked, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronRight, CircleAlert, Clock3, Download, FileText, GitBranch, Lightbulb, LoaderCircle, Menu, MoreHorizontal, Plus, RotateCcw, Save, Search, ShieldCheck, Sparkles, Target, Users, WandSparkles, X, Feather } from "lucide-react";
+import { BookMarked, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronRight, CircleAlert, Clock3, Download, FileText, GitBranch, Lightbulb, LoaderCircle, Menu, MoreHorizontal, Plus, RotateCcw, Save, Search, Square, Trash2, RefreshCw, ShieldCheck, Sparkles, Target, Users, WandSparkles, X, Feather } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,11 +15,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Toaster } from "@/components/ui/sonner";
 import { buildStory, createSampleProject, type EpisodeDraft, type ProjectInput, type StoryIdea, type StoryProject } from "@/lib/story-engine";
 
+import { isAIAbort, requestAI } from "@/lib/ai-request";
+
 const genres = ["현대 판타지", "로맨스 판타지", "미스터리", "무협", "SF", "로맨스", "드라마"];
 const tones = ["빠르고 통쾌한", "서늘하지만 따뜻한", "유쾌하고 경쾌한", "묵직하고 서정적인", "긴장감 있고 어두운"];
 type ModelTool = { name: string; title?: string; description: string; inputSchema: Record<string, unknown>; annotations?: { readOnlyHint?: boolean; untrustedContentHint?: boolean }; execute: (input: unknown) => unknown | Promise<unknown> };
 type ModelContextDocument = Document & { modelContext?: { registerTool: (tool: ModelTool, options?: { signal?: AbortSignal }) => void | Promise<void> } };
 const initialForm: ProjectInput = { title: "", synopsis: "", genre: "현대 판타지", tone: "서늘하지만 따뜻한", targetEpisodes: 80 };
+type AIAction = "plan" | "episode" | "rewrite" | "analyze";
+const aiActionLabels: Record<AIAction, string> = { plan: "전체 설계", episode: "회차 집필", rewrite: "원고 다듬기", analyze: "연속성 검사" };
 type GenerationVersion = { id: string; action: "plan" | "episode" | "rewrite" | "analyze"; model: string; inputSummary: string; output: string; createdAt: string };
 type RewriteProposal = { original: string; revised: string; start: number; end: number; wholeEpisode: boolean; instruction: string };
 type ModelOption = { id: string; label: string; note: string };
@@ -112,12 +116,29 @@ export default function StoryStudio() {
   const [aiConfigured, setAiConfigured] = useState(false);
   const [aiModel, setAiModel] = useState("gpt-5.6-terra");
   const [modelOptions, setModelOptions] = useState<ModelOption[]>(defaultModelOptions);
-  const [aiTask, setAiTask] = useState<string | null>(null);
+  const [aiTask, setAiTask] = useState<AIAction | null>(null);
+  const aiControllerRef = useRef<AbortController | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [reloadOpen, setReloadOpen] = useState(false);
+  const [reloading, setReloading] = useState(false);
   const [versions, setVersions] = useState<GenerationVersion[]>([]);
   const [versionTick, setVersionTick] = useState(0);
   const [rewriteInstruction, setRewriteInstruction] = useState("");
   const [rewriteProposal, setRewriteProposal] = useState<RewriteProposal | null>(null);
   const manuscriptRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const savedCurrent = projects.find((project) => project.id === current.id);
+  const hasUnsavedChanges = current !== (savedCurrent ?? sample);
+  const busy = Boolean(aiTask) || saving || deleting || loading || reloading;
+
+  useEffect(() => () => { aiControllerRef.current?.abort(); }, []);
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const protectDraft = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", protectDraft);
+    return () => window.removeEventListener("beforeunload", protectDraft);
+  }, [hasUnsavedChanges]);
 
   useEffect(() => {
     let active = true;
@@ -142,10 +163,12 @@ export default function StoryStudio() {
       setVersions([]);
       return;
     }
-    fetch("/api/generations?projectId=" + encodeURIComponent(current.id))
+    const controller = new AbortController();
+    fetch("/api/generations?projectId=" + encodeURIComponent(current.id), { signal: controller.signal })
       .then((response) => response.json())
-      .then((value) => setVersions(((value as { versions?: GenerationVersion[] }).versions ?? [])))
-      .catch(() => setVersions([]));
+      .then((value) => { if (!controller.signal.aborted) setVersions(((value as { versions?: GenerationVersion[] }).versions ?? [])); })
+      .catch(() => { if (!controller.signal.aborted) setVersions([]); });
+    return () => controller.abort();
   }, [current.id, versionTick]);
 
   useEffect(() => {
@@ -270,30 +293,104 @@ export default function StoryStudio() {
     }
     await persistUpdated(updateEpisodeDraft(current, active.number, activeManuscript, "done"), active.number + "화를 완성 원고로 표시했습니다.");
   };
-  const callAI = async (action: "plan" | "episode" | "rewrite" | "analyze", extra: Record<string, unknown> = {}) => {
+  const cancelAI = (notify = true) => {
+    const controller = aiControllerRef.current;
+    if (!controller) return;
+    controller.abort();
+    aiControllerRef.current = null;
+    setAiTask(null);
+    if (notify) toast.info("AI 작업을 취소했습니다. 기존 원고는 그대로 유지됩니다.");
+  };
+
+  const callAI = async (action: AIAction, extra: Record<string, unknown> = {}) => {
     if (!aiConfigured) throw new Error("AI 연결이 필요합니다. OpenAI Developers 연결을 완료해 주세요.");
+    if (aiControllerRef.current) throw new Error("진행 중인 AI 작업을 먼저 취소해 주세요.");
+    const controller = new AbortController();
+    aiControllerRef.current = controller;
     setAiTask(action);
     try {
-      const response = await fetch("/api/ai/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, project: current, model: aiModel, ...extra }),
-      });
-      const data = (await response.json()) as { result?: unknown; error?: string; model?: string };
-      if (!response.ok) throw new Error(data.error ?? "AI 생성에 실패했습니다.");
+      const data = await requestAI({ action, project: current, model: aiModel, ...extra }, controller.signal);
+      controller.signal.throwIfAborted();
       if (data.model) setAiModel(data.model);
       setVersionTick((value) => value + 1);
       return data.result;
     } finally {
-      setAiTask(null);
+      // A cancelled request must not clear the state of a newer request.
+      if (aiControllerRef.current === controller) {
+        aiControllerRef.current = null;
+        setAiTask(null);
+      }
     }
   };
 
   const persistUpdated = async (project: StoryProject, message: string) => {
-    const saved = await persistProject(project);
-    setCurrent(saved);
-    setProjects((items) => [saved, ...items.filter((item) => item.id !== saved.id && item.id !== project.id)]);
-    toast.success(message);
+    setSaving(true);
+    try {
+      const saved = await persistProject(project);
+      setCurrent(saved);
+      setProjects((items) => [saved, ...items.filter((item) => item.id !== saved.id && item.id !== project.id)]);
+      toast.success(message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteCurrentProject = async () => {
+    if (!savedCurrent || busy) return;
+    const target = current;
+    setDeleting(true);
+    try {
+      const response = await fetch("/api/projects/" + encodeURIComponent(target.id), { method: "DELETE" });
+      if (!response.ok) {
+        const data = await response.json() as { error?: string };
+        throw new Error(data.error ?? "작품을 삭제하지 못했습니다.");
+      }
+      const remaining = projects.filter((project) => project.id !== target.id);
+      setProjects(remaining);
+      setCurrent(remaining[0] ?? sample);
+      setActiveEpisode(1);
+      setEpisodePage(0);
+      setVersions([]);
+      setRewriteProposal(null);
+      setRewriteInstruction("");
+      setQuery("");
+      setDeleteOpen(false);
+      toast.success(target.title + " 작품과 AI 생성 기록을 삭제했습니다.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "작품을 삭제하지 못했습니다.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const reloadWorkspace = async () => {
+    if (saving || deleting || reloading || loading) return;
+    cancelAI(false);
+    setReloading(true);
+    try {
+      const response = await fetch("/api/projects", { cache: "no-store" });
+      if (!response.ok) throw new Error("다시 불러오지 못했습니다. 현재 원고는 그대로 유지됩니다.");
+      const data = await response.json() as { projects: StoryProject[] };
+      const normalized = data.projects.map(normalizeProject);
+      const selected = normalized.find((project) => project.id === current.id) ?? normalized[0] ?? sample;
+      setProjects(normalized);
+      setCurrent(selected);
+      if (selected.id !== current.id) { setActiveEpisode(1); setEpisodePage(0); }
+      setVersions([]);
+      setVersionTick((value) => value + 1);
+      setRewriteProposal(null);
+      setRewriteInstruction("");
+      setReloadOpen(false);
+      toast.success("저장된 작품을 다시 불러왔습니다.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "다시 불러오지 못했습니다.");
+    } finally {
+      setReloading(false);
+    }
+  };
+  const requestReload = () => {
+    if (hasUnsavedChanges || rewriteProposal) setReloadOpen(true);
+    else void reloadWorkspace();
   };
 
   const regeneratePlan = async () => {
@@ -306,7 +403,7 @@ export default function StoryStudio() {
       setActiveEpisode(1);
       setEpisodePage(0);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "AI 설계에 실패했습니다.");
+      if (!isAIAbort(error)) toast.error(error instanceof Error ? error.message : "AI 설계에 실패했습니다.");
     }
   };
 
@@ -317,7 +414,7 @@ export default function StoryStudio() {
       const updated = updateEpisodeDraft(current, active.number, text);
       await persistUpdated(updated, active.number + "화 원고를 생성하고 버전으로 보관했습니다.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "회차 원고 생성에 실패했습니다.");
+      if (!isAIAbort(error)) toast.error(error instanceof Error ? error.message : "회차 원고 생성에 실패했습니다.");
     }
   };
 
@@ -341,7 +438,7 @@ export default function StoryStudio() {
       if (!text?.trim()) throw new Error("수정된 원고가 비어 있습니다.");
       setRewriteProposal({ original: selectedText, revised: text, start: hasSelection ? start : 0, end: hasSelection ? end : body.length, wholeEpisode: !hasSelection, instruction });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "원고 재작성에 실패했습니다.");
+      if (!isAIAbort(error)) toast.error(error instanceof Error ? error.message : "원고 재작성에 실패했습니다.");
     }
   };
 
@@ -367,7 +464,7 @@ export default function StoryStudio() {
       const updated = { ...current, content: { ...current.content, characters, memories: result.memories ?? [], issues: result.issues ?? [], currentSummary: result.summary ?? current.content.currentSummary } };
       await persistUpdated(updated, "원고에서 새 기억을 추출하고 연속성을 검사했습니다.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "연속성 검사에 실패했습니다.");
+      if (!isAIAbort(error)) toast.error(error instanceof Error ? error.message : "연속성 검사에 실패했습니다.");
     }
   };
 
@@ -490,18 +587,18 @@ export default function StoryStudio() {
         <div className="header-divider" />
         <div className="project-crumb"><BookMarked /><span>{current.title}</span></div>
         <div className="header-actions">
-          <Button variant="outline" className="manual-button" onClick={() => setManualOpen(true)}><BookOpenText />사용자매뉴얼</Button>
+          <Button variant="outline" className="manual-button" onClick={() => setManualOpen(true)}><BookOpenText /><span className="header-action-label">사용자매뉴얼</span></Button>
           <DropdownMenu>
-            <DropdownMenuTrigger asChild><Button variant="outline" className={"model-selector " + (aiConfigured ? "ready" : "pending")} disabled={!aiConfigured}><Sparkles />{aiConfigured ? aiModel : "AI 연결 필요"}</Button></DropdownMenuTrigger>
+            <DropdownMenuTrigger asChild><Button variant="outline" className={"model-selector " + (aiConfigured ? "ready" : "pending")} disabled={!aiConfigured} title={aiConfigured ? `AI 모델: ${aiModel}` : "AI 연결 필요"}><Sparkles /><span className="header-action-label">{aiConfigured ? aiModel : "AI 연결 필요"}</span></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="model-menu w-64">
               <DropdownMenuLabel>AI 모델 선택</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {modelOptions.map((option) => <DropdownMenuItem key={option.id} className={option.id === aiModel ? "selected-model" : ""} onClick={() => chooseModel(option.id)}><span><strong>{option.label}</strong><small>{option.note}</small></span>{option.id === aiModel ? <Check /> : null}</DropdownMenuItem>)}
             </DropdownMenuContent>
           </DropdownMenu>
-          <span className="save-state"><span className="save-dot" />{saving ? "저장 중" : "변경사항 보호됨"}</span>
+          <span className="save-state"><span className="save-dot" />{saving ? "저장 중" : hasUnsavedChanges ? "저장 필요" : "저장됨"}</span>
           <DropdownMenu>
-            <DropdownMenuTrigger asChild><Button variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white"><Download />내보내기</Button></DropdownMenuTrigger>
+            <DropdownMenuTrigger asChild><Button variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white"><Download /><span className="header-action-label">내보내기</span></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>원고 파일</DropdownMenuLabel>
               <DropdownMenuItem onClick={() => exportProject("txt", "episode")}>현재 회차 · TXT</DropdownMenuItem>
@@ -511,25 +608,25 @@ export default function StoryStudio() {
               <DropdownMenuItem onClick={() => exportProject("json")}>백업 데이터 · JSON</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={saveCurrent} disabled={saving}><Save />저장</Button>
+          <Button variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={saveCurrent} disabled={busy}><Save /><span className="header-action-label">저장</span></Button>
         </div>
       </header>
 
       <div className="studio-shell">
         <aside className={"project-sidebar " + (mobileOpen ? "is-open" : "")}>
           <div className="mobile-sidebar-head"><strong>작품 보관함</strong><button aria-label="작품 목록 닫기" onClick={() => setMobileOpen(false)}><X /></button></div>
-          <Button className="new-project-button" onClick={() => setDialogOpen(true)}><Plus />새 작품 설계</Button>
+          <Button className="new-project-button" disabled={busy} onClick={() => setDialogOpen(true)}><Plus />새 작품 설계</Button>
           <label className="project-search"><Search aria-hidden="true" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="작품 검색" aria-label="작품 검색" /></label>
           <div className="sidebar-label"><span>내 작품</span><span>{projects.length}</span></div>
           <div className="project-list">
             {loading ? <div className="project-loading">작품을 불러오는 중…</div> : null}
             {filteredProjects.map((project) => (
-              <button key={project.id} className={"project-item " + (current.id === project.id ? "active" : "")} onClick={() => { setCurrent(project); setMobileOpen(false); setActiveEpisode(1); setEpisodePage(0); }}>
+              <button key={project.id} disabled={busy} className={"project-item " + (current.id === project.id ? "active" : "")} onClick={() => { setCurrent(project); setMobileOpen(false); setActiveEpisode(1); setEpisodePage(0); }}>
                 <span className="project-glyph">{project.title.slice(0, 1)}</span><span><strong>{project.title}</strong><small>{project.targetEpisodes}화 · {formatDate(project.updatedAt)}</small></span><ChevronRight />
               </button>
             ))}
             {!loading && !filteredProjects.length ? (
-              <button className="project-item sample" onClick={() => { setCurrent(sample); setMobileOpen(false); }}><span className="project-glyph">달</span><span><strong>샘플 작품 살펴보기</strong><small>80화 구성 · 저장 전</small></span><ChevronRight /></button>
+              <button className="project-item sample" disabled={busy} onClick={() => { setCurrent(sample); setMobileOpen(false); }}><span className="project-glyph">달</span><span><strong>샘플 작품 살펴보기</strong><small>80화 구성 · 저장 전</small></span><ChevronRight /></button>
             ) : null}
           </div>
           <div className="sidebar-note"><ShieldCheck /><div><strong>작가의 설정이 기준입니다</strong><p>고정한 설정은 이후 회차에서도 임의로 바뀌지 않습니다.</p></div></div>
@@ -537,9 +634,18 @@ export default function StoryStudio() {
         {mobileOpen ? <button className="sidebar-backdrop" aria-label="작품 목록 닫기" onClick={() => setMobileOpen(false)} /> : null}
 
         <section className="workspace">
+          <div className="workspace-controls">
+            <div className="task-status">
+              {aiTask ? <><LoaderCircle className="animate-spin" /><span role="status">{aiActionLabels[aiTask]} 진행 중</span><Button variant="outline" className="cancel-task-button" onClick={() => cancelAI()}><Square />작업 취소</Button></> : <span role="status">{reloading ? "작품을 다시 불러오는 중…" : saving ? "원고를 저장하는 중…" : hasUnsavedChanges ? "저장하지 않은 변경사항이 있습니다" : savedCurrent ? "저장된 작품을 편집하고 있습니다" : "샘플 작품을 살펴보고 있습니다"}</span>}
+            </div>
+            <div className="workspace-control-buttons">
+              <Button variant="outline" onClick={requestReload} disabled={saving || deleting || reloading || loading} title="진행 중인 AI 작업을 취소하고 저장된 작품을 다시 불러옵니다"><RefreshCw className={reloading ? "animate-spin" : ""} />다시 불러오기</Button>
+              <Button variant="outline" className="delete-project-button" onClick={() => setDeleteOpen(true)} disabled={busy || !savedCurrent}><Trash2 />작품 삭제</Button>
+            </div>
+          </div>
           <div className="workspace-head">
             <div><div className="eyebrow"><span>{current.genre}</span><i /><span>{current.tone}</span></div><h1>{current.title}</h1><p>{current.synopsis}</p></div>
-            <Button className="magic-button" onClick={regeneratePlan} disabled={Boolean(aiTask)}>{aiTask === "plan" ? <LoaderCircle className="animate-spin" /> : <WandSparkles />}{aiTask === "plan" ? "전체 이야기를 설계하는 중…" : "AI로 전체 설계"}</Button>
+            <Button className="magic-button" onClick={regeneratePlan} disabled={busy}>{aiTask === "plan" ? <LoaderCircle className="animate-spin" /> : <WandSparkles />}{aiTask === "plan" ? "전체 이야기를 설계하는 중…" : "AI로 전체 설계"}</Button>
           </div>
           <div className="metric-row">
             <div className="metric-card"><span className="metric-icon amber"><FileText /></span><div><small>전체 회차</small><strong>{current.content.episodes.length}<em>화</em></strong></div></div>
@@ -571,7 +677,7 @@ export default function StoryStudio() {
             </TabsContent>
 
             <TabsContent value="characters" className="tab-panel">
-              <div className="section-title"><div><span>CHARACTER BIBLE</span><h2>욕망이 이야기를 움직이는 인물</h2></div><Button variant="outline" onClick={addCharacter}><Plus />인물 추가</Button></div>
+              <div className="section-title"><div><span>CHARACTER BIBLE</span><h2>욕망이 이야기를 움직이는 인물</h2></div><Button variant="outline" disabled={busy} onClick={addCharacter}><Plus />인물 추가</Button></div>
               <div className="character-grid">
                 {current.content.characters.map((character) => (
                   <article className="character-card" key={character.id}>
@@ -597,22 +703,22 @@ export default function StoryStudio() {
               <section className="manuscript">
                 <div className="manuscript-head"><div><span>EPISODE {String(active.number).padStart(3, "0")}</span><h2>{active.title}</h2></div><Badge className="draft-badge">{active.status === "done" ? "완성" : activeManuscript ? "초안" : "미집필"}</Badge></div>
                 <div className="episode-brief"><div><Target /><span><small>이번 화 목표</small>{active.beat}</span></div><div><Sparkles /><span><small>마지막 훅</small>{active.hook}</span></div></div>
-                <Textarea ref={manuscriptRef} className="manuscript-editor" value={activeManuscript} onChange={(event) => editActiveManuscript(event.target.value)} placeholder={active.number + "화 원고를 직접 쓰거나 AI로 집필하세요."} aria-label={active.number + "화 원고"} />
-                <div className="manuscript-footer"><span>{activeManuscript.length.toLocaleString()}자</span><span>{activeManuscript.trim() ? activeManuscript.trim().split(/\s+/).length.toLocaleString() : 0}어절</span><span>리비전 {current.content.episodeDrafts?.[String(active.number)]?.revision ?? 0}</span><Button variant="outline" onClick={markEpisodeDone} disabled={saving || !activeManuscript.trim()}><CheckCircle2 />완료 표시</Button><Button onClick={saveCurrent} disabled={saving}><Save />원고 저장</Button></div>
+                <Textarea ref={manuscriptRef} className="manuscript-editor" readOnly={busy} value={activeManuscript} onChange={(event) => editActiveManuscript(event.target.value)} placeholder={active.number + "화 원고를 직접 쓰거나 AI로 집필하세요."} aria-label={active.number + "화 원고"} />
+                <div className="manuscript-footer"><span>{activeManuscript.length.toLocaleString()}자</span><span>{activeManuscript.trim() ? activeManuscript.trim().split(/\s+/).length.toLocaleString() : 0}어절</span><span>리비전 {current.content.episodeDrafts?.[String(active.number)]?.revision ?? 0}</span><Button variant="outline" onClick={markEpisodeDone} disabled={busy || !activeManuscript.trim()}><CheckCircle2 />완료 표시</Button><Button onClick={saveCurrent} disabled={busy}><Save />원고 저장</Button></div>
               </section>
               <aside className="writing-assistant">
                 <div className="assistant-title"><BrainCircuit /><div><strong>집필 조력자</strong><span>기억 {current.content.memories?.length ?? 0}개 · 현재 회차 맥락 연결</span></div></div>
                 <div className="assistant-check"><h3>이번 화 체크</h3><p><Check />주인공의 목표가 분명함</p><p><Check />이전 화 감정선 연결</p><p><CircleAlert />도진의 호칭 복선 확인</p></div>
-                <Button className="assistant-generate episode-generate" onClick={generateEpisode} disabled={Boolean(aiTask)}>{aiTask === "episode" ? <LoaderCircle className="animate-spin" /> : <Feather />}{aiTask === "episode" ? "원고를 집필하는 중…" : "AI로 이번 화 집필"}</Button>
+                <Button className="assistant-generate episode-generate" onClick={generateEpisode} disabled={busy}>{aiTask === "episode" ? <LoaderCircle className="animate-spin" /> : <Feather />}{aiTask === "episode" ? "원고를 집필하는 중…" : "AI로 이번 화 집필"}</Button>
                 <p className="selection-hint">문장을 선택하면 그 부분만, 선택하지 않으면 회차 전체를 수정합니다. 결과는 적용 전에 비교할 수 있습니다.</p>
-                <div className="assistant-actions"><button onClick={() => rewriteManuscript("대사를 더 짧고 날카롭게 다듬어라.")} disabled={Boolean(aiTask)}>대사를 더 날카롭게</button><button onClick={() => rewriteManuscript("감정을 직접 설명하지 말고 행동과 감각으로 더 섬세하게 보여줘라.")} disabled={Boolean(aiTask)}>감정선을 더 섬세하게</button><button onClick={() => rewriteManuscript("사건 진행 속도를 높이고 불필요한 설명을 덜어내라.")} disabled={Boolean(aiTask)}>전개 속도 높이기</button><button onClick={() => rewriteManuscript("마지막 장면의 긴장과 클리프행어를 강화하라.")} disabled={Boolean(aiTask)}>마지막 훅 강화</button></div>
-                <div className="custom-rewrite"><Textarea value={rewriteInstruction} onChange={(event) => setRewriteInstruction(event.target.value)} placeholder="예: 주인공의 불안을 직접 설명하지 말고 손동작으로 보여줘" /><Button variant="outline" onClick={() => rewriteManuscript(rewriteInstruction)} disabled={Boolean(aiTask) || !rewriteInstruction.trim()}>{aiTask === "rewrite" ? <LoaderCircle className="animate-spin" /> : <Sparkles />}맞춤 수정안</Button></div>
-                <Button className="assistant-generate" variant="outline" onClick={() => rewriteManuscript("문장 반복을 줄이고 장면 전환과 호흡을 매끄럽게 다듬어라.", true)} disabled={Boolean(aiTask)}>{aiTask === "rewrite" ? <LoaderCircle className="animate-spin" /> : <Sparkles />}{aiTask === "rewrite" ? "원고를 다듬는 중…" : "원고 전체 다듬기"}</Button>
+                <div className="assistant-actions"><button onClick={() => rewriteManuscript("대사를 더 짧고 날카롭게 다듬어라.")} disabled={busy}>대사를 더 날카롭게</button><button onClick={() => rewriteManuscript("감정을 직접 설명하지 말고 행동과 감각으로 더 섬세하게 보여줘라.")} disabled={busy}>감정선을 더 섬세하게</button><button onClick={() => rewriteManuscript("사건 진행 속도를 높이고 불필요한 설명을 덜어내라.")} disabled={busy}>전개 속도 높이기</button><button onClick={() => rewriteManuscript("마지막 장면의 긴장과 클리프행어를 강화하라.")} disabled={busy}>마지막 훅 강화</button></div>
+                <div className="custom-rewrite"><Textarea value={rewriteInstruction} onChange={(event) => setRewriteInstruction(event.target.value)} placeholder="예: 주인공의 불안을 직접 설명하지 말고 손동작으로 보여줘" /><Button variant="outline" onClick={() => rewriteManuscript(rewriteInstruction)} disabled={busy || !rewriteInstruction.trim()}>{aiTask === "rewrite" ? <LoaderCircle className="animate-spin" /> : <Sparkles />}맞춤 수정안</Button></div>
+                <Button className="assistant-generate" variant="outline" onClick={() => rewriteManuscript("문장 반복을 줄이고 장면 전환과 호흡을 매끄럽게 다듬어라.", true)} disabled={busy}>{aiTask === "rewrite" ? <LoaderCircle className="animate-spin" /> : <Sparkles />}{aiTask === "rewrite" ? "원고를 다듬는 중…" : "원고 전체 다듬기"}</Button>
               </aside>
             </TabsContent>
 
             <TabsContent value="foreshadow" className="tab-panel">
-              <div className="section-title"><div><span>FORESHADOW TRACKER</span><h2>복선의 설치부터 회수까지</h2></div><div className="section-actions"><Button variant="outline" onClick={addForeshadow}><Plus />복선 등록</Button><Button className="magic-button" onClick={analyzeContinuity} disabled={Boolean(aiTask)}>{aiTask === "analyze" ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />}{aiTask === "analyze" ? "검사 중…" : "AI 연속성 검사"}</Button></div></div>
+              <div className="section-title"><div><span>FORESHADOW TRACKER</span><h2>복선의 설치부터 회수까지</h2></div><div className="section-actions"><Button variant="outline" disabled={busy} onClick={addForeshadow}><Plus />복선 등록</Button><Button className="magic-button" onClick={analyzeContinuity} disabled={busy}>{aiTask === "analyze" ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />}{aiTask === "analyze" ? "검사 중…" : "AI 연속성 검사"}</Button></div></div>
               <div className="foreshadow-board">
                 {current.content.foreshadows.map((item) => <article key={item.id} className="foreshadow-card"><div className="foreshadow-top"><GitBranch /><Badge variant={item.status === "seeded" ? "default" : "outline"}>{item.status === "seeded" ? "설치됨" : item.status === "developing" ? "발전 중" : "예정"}</Badge></div><h3>{item.label}</h3><p>{item.note}</p><div className="payoff-line"><span>{item.seedEpisode}화 설치</span><i /><span>{item.payoffEpisode}화 회수</span></div></article>)}
               </div>
@@ -629,7 +735,7 @@ export default function StoryStudio() {
             </TabsContent>
 
             <TabsContent value="ideas" className="tab-panel">
-              <div className="idea-hero"><div><span>STORY WELL</span><h2>새 사건을 억지로 만들지 않습니다.</h2><p>인물의 욕망, 아직 갚지 않은 대가, 미회수 복선에서 다음 이야기를 길어 올립니다.</p></div><Button className="magic-button" onClick={addIdea}><WandSparkles />새 소재 길어 올리기</Button></div>
+              <div className="idea-hero"><div><span>STORY WELL</span><h2>새 사건을 억지로 만들지 않습니다.</h2><p>인물의 욕망, 아직 갚지 않은 대가, 미회수 복선에서 다음 이야기를 길어 올립니다.</p></div><Button className="magic-button" disabled={busy} onClick={addIdea}><WandSparkles />새 소재 길어 올리기</Button></div>
               <div className="idea-grid">{current.content.ideas.map((idea, index) => <article className="idea-card" key={idea.title + index}><div><Badge variant="outline">{idea.energy}</Badge><span>{idea.span}</span></div><h3>{idea.title}</h3><p>{idea.reason}</p><footer><span>원천</span><strong>{idea.source}</strong><button aria-label={idea.title + " 적용"} onClick={() => toast.success("소재를 다음 회차 후보로 표시했습니다.")}><ChevronRight /></button></footer></article>)}</div>
             </TabsContent>
 
@@ -638,13 +744,27 @@ export default function StoryStudio() {
               <div className="version-list">
                 {versions.length ? versions.map((version) => {
                   const labels = { plan: "전체 설계", episode: "회차 원고", rewrite: "원고 다듬기", analyze: "연속성 검사" };
-                  return <article className="version-row" key={version.id}><span className="version-icon"><Clock3 /></span><div><Badge variant="outline">{labels[version.action]}</Badge><h3>{version.inputSummary || current.title}</h3><p>{version.model} · {new Date(version.createdAt).toLocaleString("ko-KR")}</p></div><Button variant="outline" onClick={() => restoreVersion(version)}><RotateCcw />복원</Button></article>;
+                  return <article className="version-row" key={version.id}><span className="version-icon"><Clock3 /></span><div><Badge variant="outline">{labels[version.action]}</Badge><h3>{version.inputSummary || current.title}</h3><p>{version.model} · {new Date(version.createdAt).toLocaleString("ko-KR")}</p></div><Button variant="outline" disabled={busy} onClick={() => restoreVersion(version)}><RotateCcw />복원</Button></article>;
                 }) : <div className="version-empty"><Clock3 /><h3>아직 저장된 AI 버전이 없습니다</h3><p>AI로 설계하거나 원고를 생성하면 이전 결과가 자동으로 보관됩니다.</p></div>}
               </div>
             </TabsContent>
           </Tabs>
         </section>
       </div>
+
+      <Dialog open={deleteOpen} onOpenChange={(open) => { if (!deleting) setDeleteOpen(open); }}>
+        <DialogContent className="project-dialog sm:max-w-lg" onInteractOutside={(event) => { if (deleting) event.preventDefault(); }}>
+          <DialogHeader><DialogTitle>이 작품을 삭제할까요?</DialogTitle><DialogDescription><strong>{current.title}</strong>의 작품 설정, 모든 회차 원고와 AI 생성 기록을 함께 삭제합니다. 삭제한 내용은 복구할 수 없습니다.</DialogDescription></DialogHeader>
+          <DialogFooter><Button variant="ghost" onClick={() => setDeleteOpen(false)} disabled={deleting}>유지하기</Button><Button variant="destructive" onClick={deleteCurrentProject} disabled={deleting}>{deleting ? <LoaderCircle className="animate-spin" /> : <Trash2 />}{deleting ? "삭제 중…" : "작품 삭제"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={reloadOpen} onOpenChange={(open) => { if (!reloading) setReloadOpen(open); }}>
+        <DialogContent className="project-dialog sm:max-w-lg">
+          <DialogHeader><DialogTitle>저장된 내용으로 다시 불러올까요?</DialogTitle><DialogDescription>저장하지 않은 원고와 아직 적용하지 않은 수정안은 사라집니다. 진행 중인 AI 작업은 취소됩니다.</DialogDescription></DialogHeader>
+          <DialogFooter><Button variant="ghost" onClick={() => setReloadOpen(false)} disabled={reloading}>계속 작성하기</Button><Button onClick={reloadWorkspace} disabled={reloading || saving || deleting}>{reloading ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}다시 불러오기</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="project-dialog sm:max-w-2xl">
@@ -659,7 +779,7 @@ export default function StoryStudio() {
                 <label><span>목표 회차</span><Input type="number" min={12} max={200} value={form.targetEpisodes} onChange={(event) => setForm({ ...form, targetEpisodes: Number(event.target.value) })} /></label>
               </div>
             </div>
-            <DialogFooter><Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>취소</Button><Button type="submit" className="magic-button" disabled={saving}><WandSparkles />{saving ? "설계하는 중…" : "전체 이야기 설계"}</Button></DialogFooter>
+            <DialogFooter><Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>취소</Button><Button type="submit" className="magic-button" disabled={busy}><WandSparkles />{saving ? "설계하는 중…" : "전체 이야기 설계"}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
@@ -679,7 +799,8 @@ export default function StoryStudio() {
               <a href="#manual-ai">4. AI 조력자</a>
               <a href="#manual-continuity">5. 복선과 연속성</a>
               <a href="#manual-save">6. 저장·내보내기</a>
-              <a href="#manual-tips">7. 작업 팁</a>
+              <a href="#manual-controls">7. 삭제·취소·다시 불러오기</a>
+              <a href="#manual-tips">8. 작업 팁</a>
             </nav>
             <div className="manual-content">
               <section id="manual-start"><h3>1. 시작하기</h3><p><strong>새 작품 설계</strong>를 눌러 제목, 시놉시스, 장르, 톤과 목표 회차를 입력합니다. 짧은 시놉시스에는 주인공, 원하는 것, 가장 큰 장애물을 담으면 더 선명한 설계가 만들어집니다.</p></section>
@@ -688,7 +809,8 @@ export default function StoryStudio() {
               <section id="manual-ai"><h3>4. AI 조력자 활용하기</h3><p>AI가 연결된 상태라면 <strong>AI로 전체 설계</strong>로 작품 구조를 다시 제안받거나, 집필 탭에서 <strong>AI로 이번 화 집필</strong>을 선택할 수 있습니다.</p><p>문단을 드래그한 뒤 수정 요청을 누르면 선택한 부분만 다듬습니다. 선택하지 않으면 회차 전체를 대상으로 합니다. 제안은 비교 창에서 확인하며, <strong>수정안 적용</strong>을 눌렀을 때만 원고에 반영됩니다.</p></section>
               <section id="manual-continuity"><h3>5. 복선과 연속성 관리</h3><p><strong>복선</strong> 탭에서 설치 회차와 회수 회차를 확인하고, 필요한 복선을 추가합니다. <strong>AI 연속성 검사</strong>는 현재 원고와 설정을 비교해 시간선, 인물 설정, 미회수 단서를 점검합니다.</p><p>‘원고에서 확정된 기억’은 이후 집필 때 참조할 사실입니다. 중요한 설정은 직접 다시 확인하고, 작품의 기준과 다르면 원고 또는 설정을 수정하세요.</p></section>
               <section id="manual-save"><h3>6. 저장과 내보내기</h3><p>작업 중에는 상단 <strong>저장</strong> 버튼으로 작품 설정과 원고를 보관합니다. 상단 <strong>내보내기</strong>에서는 현재 회차 또는 전체 원고를 TXT로, 작품 설계를 포함한 원고를 Markdown으로, 전체 백업을 JSON으로 받을 수 있습니다.</p><p>외부에 공유하거나 큰 수정 전에는 JSON 백업을 한 번 내려받아 두는 것을 권합니다.</p></section>
-              <section id="manual-tips"><h3>7. 매끄러운 작업을 위한 팁</h3><ul><li>새 회차를 쓰기 전, 이전 화의 마지막 훅과 인물의 현재 상태를 먼저 확인하세요.</li><li>AI 결과는 초안으로 보고, 작품의 목소리와 설정에 맞게 직접 다듬으세요.</li><li>큰 변경 뒤에는 저장하고 연속성 검사를 실행해 설정 충돌을 일찍 찾으세요.</li></ul></section>
+              <section id="manual-controls"><h3>7. 삭제·취소·다시 불러오기</h3><p>삭제할 작품을 보관함에서 선택하고 <strong>작품 삭제</strong>를 누르세요. 확인창에서 삭제하면 해당 작품의 설정, 원고와 AI 기록이 함께 삭제됩니다. 샘플 작품은 삭제 대상이 아닙니다.</p><p>AI 작업 중에는 화면 위쪽의 <strong>작업 취소</strong>로 요청을 중단할 수 있습니다. 취소한 결과는 원고에 적용되지 않습니다. 다시 시도하려면 원하는 AI 작업 버튼을 누르세요.</p><p><strong>다시 불러오기</strong>는 AI 작업을 취소하고 마지막으로 저장된 작품을 불러옵니다. 저장하지 않은 변경사항이 있으면 먼저 확인하며, 불러오기에 실패하면 현재 원고를 유지합니다.</p></section>
+              <section id="manual-tips"><h3>8. 매끄러운 작업을 위한 팁</h3><ul><li>새 회차를 쓰기 전, 이전 화의 마지막 훅과 인물의 현재 상태를 먼저 확인하세요.</li><li>AI 결과는 초안으로 보고, 작품의 목소리와 설정에 맞게 직접 다듬으세요.</li><li>큰 변경 뒤에는 저장하고 연속성 검사를 실행해 설정 충돌을 일찍 찾으세요.</li></ul></section>
             </div>
           </div>
           <DialogFooter><Button onClick={() => setManualOpen(false)}><Check />매뉴얼 닫기</Button></DialogFooter>
@@ -702,7 +824,7 @@ export default function StoryStudio() {
             <section><span>원문</span><div>{rewriteProposal?.original}</div></section>
             <section><span>수정안</span><div>{rewriteProposal?.revised}</div></section>
           </div>
-          <DialogFooter><Button variant="ghost" onClick={() => setRewriteProposal(null)}>원문 유지</Button><Button onClick={applyRewrite} disabled={saving}><Check />수정안 적용</Button></DialogFooter>
+          <DialogFooter><Button variant="ghost" onClick={() => setRewriteProposal(null)}>원문 유지</Button><Button onClick={applyRewrite} disabled={busy}><Check />수정안 적용</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </main>
