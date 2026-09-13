@@ -62,7 +62,7 @@ export default defineConfig(async () => {
       {
         name: "storywell-sites-runtime",
         enforce: "pre",
-        resolveId(id) {
+        resolveId(id: string) {
           const normalized = id.replaceAll("\\", "/");
           if (id === "@/lib/server/runtime" || /\/lib\/server\/runtime(?:\.ts)?$/.test(normalized)) {
             return fileURLToPath(new URL("./lib/server/sites-runtime.ts", import.meta.url));
