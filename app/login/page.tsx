@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
+import { APP_NAME, APP_VERSION } from "@/lib/app-version";
 import { Feather, LockKeyhole } from "lucide-react";
 
-export const metadata: Metadata = { title: "로그인 | StoryWell Ver2.0" };
+export const metadata: Metadata = { title: "로그인 | " + APP_NAME };
 export const dynamic = "force-dynamic";
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
@@ -9,7 +10,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   return (
     <main className="login-page">
       <section className="login-card" aria-labelledby="login-title">
-        <div className="login-brand"><span><Feather aria-hidden="true" /></span><strong>StoryWell <small>Ver2.0</small></strong></div>
+        <div className="login-brand"><span><Feather aria-hidden="true" /></span><strong>StoryWell <small>Ver {APP_VERSION}</small></strong></div>
         <div className="login-intro">
           <p className="login-eyebrow">나만의 웹소설 창작 스튜디오</p>
           <h1 id="login-title">작업실에 오신 것을 환영합니다</h1>

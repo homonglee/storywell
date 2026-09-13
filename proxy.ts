@@ -1,3 +1,4 @@
+import { APP_NAME } from "@/lib/app-version";
 import { env } from "@/lib/server/runtime";
 import { NextResponse, type NextRequest } from "next/server";
 import { validPrivateSession, privateSessionFrom, sameOriginMutation } from "@/lib/server/private-access";
@@ -6,7 +7,7 @@ export async function proxy(request: NextRequest) {
   if (!env.IS_VERCEL) return NextResponse.next();
   const password = process.env.STORYWELL_ACCESS_PASSWORD;
   if (!password || password.length < 16) {
-    return new Response("<!doctype html><html lang='ko'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>StoryWell Ver2.0 설정</title><body style='font-family:system-ui;background:#10151f;color:#eee;padding:40px;max-width:680px;margin:auto'><h1>StoryWell Ver2.0</h1><p>배포는 준비되었으며 비공개 작업실 연결을 기다리고 있습니다.</p><p>Vercel 설정에서 작업실 비밀번호를 등록해 주세요. 연결을 마치면 작품 설계와 집필을 시작할 수 있습니다.</p></body></html>", { status: 503, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+    return new Response(`<!doctype html><html lang='ko'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>${APP_NAME} 설정</title><body style='font-family:system-ui;background:#10151f;color:#eee;padding:40px;max-width:680px;margin:auto'><h1>${APP_NAME}</h1><p>배포는 준비되었으며 비공개 작업실 연결을 기다리고 있습니다.</p><p>Vercel 설정에서 작업실 비밀번호를 등록해 주세요. 연결을 마치면 작품 설계와 집필을 시작할 수 있습니다.</p></body></html>`, { status: 503, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
   }
   const pathname = new URL(request.url).pathname;
   const authenticated = await validPrivateSession(privateSessionFrom(request), password);

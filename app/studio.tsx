@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Toaster } from "@/components/ui/sonner";
 import { buildStory, createSampleProject, type Character, type Foreshadow, type EpisodeDraft, type ProjectInput, type StoryIdea, type StoryProject } from "@/lib/story-engine";
 
+import { APP_NAME } from "@/lib/app-version";
 import { isAIAbort, requestAI } from "@/lib/ai-request";
 import { mergeAIPlan, mergeMemories, isTemplateContent } from "@/lib/story-planning";
 import { EpisodeTargetInput } from "@/components/episode-target-input";
@@ -100,6 +101,7 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
   const [dialogOpen, setDialogOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const mobileMenuRef = useRef<HTMLButtonElement>(null);
   const [form, setForm] = useState<ProjectInput>(initialForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -622,9 +624,9 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
     <main className="min-h-screen bg-[var(--ink)] text-[var(--paper)]">
       <Toaster position="bottom-right" />
       <header className="studio-header">
-        <button className="mobile-menu" aria-label="작품 목록 열기" onClick={() => setMobileOpen(true)}><Menu /></button>
+        <button ref={mobileMenuRef} className="mobile-menu" aria-label="작품 목록 열기" aria-expanded={mobileOpen} aria-controls="project-sidebar" onClick={() => setMobileOpen(true)}><Menu /></button>
         <div className="brand-mark" aria-hidden="true"><Feather /></div>
-        <div className="brand-copy"><strong>StoryWell Ver2.0</strong><span>웹소설 창작 스튜디오</span></div>
+        <div className="brand-copy"><strong>{APP_NAME}</strong><span>웹소설 창작 스튜디오</span></div>
         <div className="header-divider" />
         <div className="project-crumb"><BookMarked /><span>{current.title}</span></div>
         <div className="header-actions">
@@ -654,9 +656,9 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
       </header>
 
       <div className="studio-shell">
-        <aside className={"project-sidebar " + (mobileOpen ? "is-open" : "")}>
+        <aside id="project-sidebar" className={"project-sidebar " + (mobileOpen ? "is-open" : "")}>
           <div className="mobile-sidebar-head"><strong>작품 보관함</strong><button aria-label="작품 목록 닫기" onClick={() => setMobileOpen(false)}><X /></button></div>
-          <Button className="new-project-button" disabled={busy} onClick={() => setDialogOpen(true)}><Plus />새 작품 설계</Button>
+          <Button className="new-project-button" disabled={busy} onClick={() => { setMobileOpen(false); setDialogOpen(true); }}><Plus />새 작품 설계</Button>
           <label className="project-search"><Search aria-hidden="true" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="작품 검색" aria-label="작품 검색" /></label>
           <div className="sidebar-label"><span>내 작품</span><span>{projects.length}</span></div>
           <div className="project-list">
@@ -842,7 +844,7 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
         onChange={draft => setCharacterEditor(editor => editor ? { ...editor, draft } : null)} onClose={() => setCharacterEditor(null)} onSave={saveCharacter} onDelete={deleteCharacter} /> : null}
 
       <Dialog open={dialogOpen} onOpenChange={open => { if (!busy) setDialogOpen(open); }}>
-        <DialogContent className="project-dialog new-project-dialog sm:max-w-2xl" showCloseButton={!busy}>
+        <DialogContent className="project-dialog new-project-dialog sm:max-w-2xl" showCloseButton={!busy} onCloseAutoFocus={(event) => { if (window.matchMedia("(max-width: 800px)").matches) { event.preventDefault(); mobileMenuRef.current?.focus(); } }}>
           <form onSubmit={submitProject}>
             <DialogHeader><div className="dialog-icon"><BookOpenText /></div><DialogTitle>새 이야기의 씨앗</DialogTitle><DialogDescription>제목과 시놉시스를 바탕으로 AI가 인물, 세계관, 전체 회차와 복선을 새로 설계합니다. 회차가 많으면 몇 분 걸릴 수 있으며 진행 상황을 표시합니다.</DialogDescription></DialogHeader>
             <fieldset className="dialog-fields" disabled={busy}>

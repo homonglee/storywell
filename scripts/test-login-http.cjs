@@ -35,7 +35,7 @@ const request = (url, options={}) => fetch(base + url, { redirect:'manual', ...o
       const workspace=await request('/',{headers:{cookie}});
       assert.equal(workspace.status,200);
       const content=await workspace.text();
-      assert.ok(content.includes('StoryWell Ver2.0')); assert.ok(content.includes('로그아웃'));
+      assert.match(content, /StoryWell Ver \d+\.\d{2}/); assert.ok(content.includes('로그아웃'));
     }
     const status=await request('/api/ai/status',{headers:{cookie}}); assert.equal(status.status,200);
     const loggedOut=await request('/api/auth/logout',{method:'POST',headers:{origin:base,cookie}});

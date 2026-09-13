@@ -413,13 +413,14 @@ button { cursor: pointer; }
   .mobile-menu svg { width: 19px; }
   .brand-copy span, .header-divider, .project-crumb, .save-state, .ai-state { display: none; }
   .brand-copy { min-width: 0; }
+  .brand-copy strong { font-size: clamp(16px, 4.6vw, 20px); white-space: nowrap; }
   .brand-mark { width: 34px; height: 34px; }
   .header-actions { display: grid; flex: 0 0 100%; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; min-width: 0; margin-left: 0; }
   .header-actions > button { width: 100%; min-width: 0; height: 44px; padding: 0 8px; font-size: 14px; }
   .header-actions .model-selector { max-width: none; }
   .studio-shell { display: block; }
-  .project-sidebar { position: fixed; z-index: 70; top: 0; left: 0; width: min(310px, 88vw); height: 100vh; transform: translateX(-103%); transition: transform 220ms ease; }
-  .project-sidebar.is-open { transform: translateX(0); }
+  .project-sidebar { position: fixed; z-index: 70; top: 0; left: 0; width: min(310px, 88vw); height: 100vh; height: 100dvh; visibility: hidden; pointer-events: none; transform: translateX(-103%); transition: transform 220ms ease; }
+  .project-sidebar.is-open { visibility: visible; pointer-events: auto; transform: translateX(0); }
   .mobile-sidebar-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
   .mobile-sidebar-head button { border: 0; color: #a9afb8; background: transparent; }
   .mobile-sidebar-head svg { width: 20px; }
