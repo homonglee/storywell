@@ -59,6 +59,16 @@ export default defineConfig(async () => {
       ...(isCodexSeatbeltSandbox ? { watch: { useFsEvents: false, usePolling: true } } : {}),
     },
     plugins: [
+      {
+        name: "storywell-sites-runtime",
+        enforce: "pre",
+        resolveId(id) {
+          const normalized = id.replaceAll("\\", "/");
+          if (id === "@/lib/server/runtime" || /\/lib\/server\/runtime(?:\.ts)?$/.test(normalized)) {
+            return fileURLToPath(new URL("./lib/server/sites-runtime.ts", import.meta.url));
+          }
+        },
+      },
       vinext(),
       sites({ mockAuth: !managedLinux }),
       cloudflare({
