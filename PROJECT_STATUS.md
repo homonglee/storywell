@@ -2,7 +2,7 @@
 
 ## 현재 상태
 
-- StoryWell Ver2.0은 Vercel Homong's projects / storywell에 최초 배포 Ready 확인. 주소 https://storywell-amber.vercel.app . Neon 무료 저장소 연결 확인. 현재 비밀번호·OpenAI 키 입력 대기. 아래 버전 12는 별도로 유지 중인 기존 Sites 서비스이며 Vercel로 데이터가 자동 이전되지는 않음
+- StoryWell Ver2.0은 Vercel Homong's projects / storywell에 최초 배포 Ready 확인. 주소 https://storywell-amber.vercel.app . Neon 무료 저장소 연결 확인. 비밀번호·OpenAI 키 등록 및 재배포 Ready 확인. 인증 후 실제 저장·AI 검증 대기. 아래 버전 12는 별도로 유지 중인 기존 Sites 서비스이며 Vercel로 데이터가 자동 이전되지는 않음
 
 - 2026-09-13 18:28 KST, StoryWell 버전 12 게시 성공 확인
 - 사이트: https://storywell-webnovel-studio.homong-lee.chatgpt.site
@@ -194,3 +194,12 @@
 - 환경변수 목록에서 DATABASE_URL과 POSTGRES_URL 등록 확인. 연결 문자열 값은 열람·출력하지 않음
 - OPENAI_API_KEY와 STORYWELL_ACCESS_PASSWORD는 입력창의 키 이름으로만 존재하며 저장 목록에서는 확인되지 않음. 사용자에게 직접 값을 입력하고 Save하도록 요청함
 - 비밀값 저장 후 재배포, 인증된 작품 저장과 실제 AI 생성 검증이 남아 있음. 현재 DB 테이블 초기화·기존 Sites 자료 이전은 실행하지 않음
+
+## 2026-09-13 Vercel 비밀값 저장 및 재배포 확인
+
+- 사용자 저장 완료 응답 후 OPENAI_API_KEY, STORYWELL_ACCESS_PASSWORD, DATABASE_URL, POSTGRES_URL 이름이 저장 목록에 모두 존재함을 확인. 값은 읽거나 출력하지 않음
+- 사용자가 실행한 Production 재배포 dpl_3tQrHf9KSFsrgtYfha8ND2fBpDDa가 Ready로 완료됨. 소스 3184725ae5963ef19da718183599a25032b6d1ba, 빌드 1분 16초, 2026-09-13 19:46:51 KST 완료
+- 운영 도메인 storywell-amber.vercel.app에 새 배포 연결 확인
+- 실제 HTTP 검사: / 및 /api/projects 모두 401로 전환되어 설정 대기 503에서 정상 로그인 요구 상태로 변경됨
+- Chrome 자동화가 HTTP 로그인 페이지 열기를 ERR_BLOCKED_BY_CLIENT로 중단하여 임시 탭 정리. 사용자에게 Chrome에서 직접 사이트를 열고 storywell 및 본인 비밀번호로 로그인하도록 요청
+- 인증된 실제 작품 저장·AI 생성 검증이 아직 남아 있음. 로그인 우회나 비밀번호 추출은 하지 않음
