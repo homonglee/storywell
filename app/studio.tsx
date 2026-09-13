@@ -492,7 +492,7 @@ export default function StoryStudio() {
         <div className="header-actions">
           <Button variant="outline" className="manual-button" onClick={() => setManualOpen(true)}><BookOpenText />사용자매뉴얼</Button>
           <DropdownMenu>
-            <DropdownMenuTrigger render={<Button variant="outline" className={"model-selector " + (aiConfigured ? "ready" : "pending")} disabled={!aiConfigured}><Sparkles />{aiConfigured ? aiModel : "AI 연결 필요"}</Button>} />
+            <DropdownMenuTrigger asChild><Button variant="outline" className={"model-selector " + (aiConfigured ? "ready" : "pending")} disabled={!aiConfigured}><Sparkles />{aiConfigured ? aiModel : "AI 연결 필요"}</Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="model-menu w-64">
               <DropdownMenuLabel>AI 모델 선택</DropdownMenuLabel>
               <DropdownMenuSeparator />
@@ -501,7 +501,7 @@ export default function StoryStudio() {
           </DropdownMenu>
           <span className="save-state"><span className="save-dot" />{saving ? "저장 중" : "변경사항 보호됨"}</span>
           <DropdownMenu>
-            <DropdownMenuTrigger render={<Button variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white"><Download />내보내기</Button>} />
+            <DropdownMenuTrigger asChild><Button variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white"><Download />내보내기</Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>원고 파일</DropdownMenuLabel>
               <DropdownMenuItem onClick={() => exportProject("txt", "episode")}>현재 회차 · TXT</DropdownMenuItem>
