@@ -19,7 +19,7 @@ Add these in Vercel Project Settings → Environment Variables for Production an
 
 Do not put keys or passwords in chat, Git, or client-side NEXT_PUBLIC variables.
 Until a strong password is configured, the deployment returns 503 and keeps the workspace/API closed.
-Sign in with username storywell and the configured password. All API routes use the same gate; incoming Sites identity headers are replaced.
+Open /login and sign in with username storywell and the configured password. The server issues a signed, HttpOnly, Secure, SameSite=Lax cookie for seven days. Use the workspace logout button to clear it; save pending edits first. All API routes use the same gate; incoming Sites identity headers are replaced.
 After adding the database, the application initializes its three tables on the first authorized database request with a transaction and advisory lock.
 The connection uses validated TLS; project/history deletion remains atomic.
 
@@ -29,8 +29,10 @@ The new Postgres workspace does not automatically contain works from the Sites D
 
 Production URL: https://storywell-amber.vercel.app
 Initial deployment READY: e1bb32d, dpl_2JvFgTDn8pLL1r5dQhWbaVyy3rJi.
-Password and API key are now registered. The production workspace/API return HTTP 401 and require the owner to sign in.
+Password and API key are registered. The updated login flow redirects unauthenticated pages to /login and returns JSON 401 for protected APIs, without browser Basic Auth popups.
 Neon Free database neon-amber-saddle is connected to storywell. DATABASE_URL and POSTGRES_URL are present (secret values not read). OPENAI_API_KEY and STORYWELL_ACCESS_PASSWORD are present (values not read). Authenticated Vercel data and AI generation checks are pending the owner browser login.
 Vercel plans now continue across requests (bible, then at most 20 chapters each). The request timeout is 270 seconds under the 300-second platform limit.
 
 Latest verified production redeploy: dpl_3tQrHf9KSFsrgtYfha8ND2fBpDDa, source 3184725, READY at 2026-09-13 19:46:51 KST.
+
+Login regression checks: node --test scripts/test-workspace-controls.cjs (37 tests), then pnpm build:vercel and node scripts/test-login-http.cjs. The HTTP test uses dummy credentials and no production database or AI calls.

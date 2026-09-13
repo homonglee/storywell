@@ -93,7 +93,7 @@ function updateEpisodeDraft(project: StoryProject, episodeNumber: number, body: 
   };
 }
 
-export default function StoryStudio() {
+export default function StoryStudio({ privateLogin = false }: { privateLogin?: boolean }) {
   const sample = useMemo(() => createSampleProject(), []);
   const [projects, setProjects] = useState<StoryProject[]>([]);
   const [current, setCurrent] = useState<StoryProject>(sample);
@@ -680,6 +680,7 @@ export default function StoryStudio() {
               {aiTask ? <><LoaderCircle className="animate-spin" /><span role="status">{aiActionLabels[aiTask]} · {aiProgress || "진행 중"} · {aiElapsed}초 경과</span><Button variant="outline" className="cancel-task-button" disabled={saving} onClick={() => cancelAI()}><Square />작업 취소</Button></> : <span role="status">{reloading ? "작품을 다시 불러오는 중…" : saving ? "원고를 저장하는 중…" : hasUnsavedChanges ? "저장하지 않은 변경사항이 있습니다" : savedCurrent ? "저장된 작품을 편집하고 있습니다" : "샘플 작품을 살펴보고 있습니다"}</span>}
             </div>
             <div className="workspace-control-buttons">
+              {privateLogin ? <form action="/api/auth/logout" method="post"><Button variant="ghost" type="submit" disabled={busy || hasUnsavedChanges || characterEditorDirty} title={hasUnsavedChanges || characterEditorDirty ? "변경사항을 먼저 저장해 주세요." : "이 브라우저에서 로그아웃합니다"}>로그아웃</Button></form> : null}
               <Button variant="outline" onClick={requestReload} disabled={saving || deleting || reloading || loading} title="진행 중인 AI 작업을 취소하고 저장된 작품을 다시 불러옵니다"><RefreshCw className={reloading ? "animate-spin" : ""} />다시 불러오기</Button>
               <Button variant="outline" className="delete-project-button" onClick={() => setDeleteOpen(true)} disabled={busy || !savedCurrent}><Trash2 />작품 삭제</Button>
             </div>

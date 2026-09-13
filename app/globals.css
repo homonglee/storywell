@@ -556,3 +556,23 @@ button { cursor: pointer; }
 .ai-preview-panel p { margin-bottom: 8px; color: #e6b969; }
 .ai-preview-panel pre { white-space: pre-wrap; font: inherit; max-height: 200px; overflow-y: auto; }
 .new-project-dialog, .character-editor-dialog { scrollbar-width: thin; scrollbar-color: #586172 #19202b; color-scheme: dark; }
+
+.login-page { min-height: 100svh; display: grid; place-items: center; padding: 32px 20px; background: radial-gradient(ellipse at top, #252330 0%, var(--ink) 65%); }
+.login-card { width: 100%; max-width: 460px; border: 1px solid var(--line); border-radius: 24px; padding: clamp(24px, 6vw, 40px); background: var(--ink-soft); box-shadow: 0 24px 80px #0005; }
+.login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 36px; }
+.login-brand > span { display: grid; place-items: center; width: 44px; height: 44px; color: var(--gold); border: 1px solid #e9aa4240; border-radius: 12px; background: #e9aa420a; }
+.login-brand strong { font-family: Georgia, serif; font-size: 27px; }
+.login-brand small { font-family: var(--font-sans); font-size: 13px; color: var(--gold); white-space: nowrap; }
+.login-eyebrow { color: var(--gold); font-size: 12px; letter-spacing: .03em; }
+.login-intro h1 { margin: 10px 0 12px; font-size: clamp(20px, 5vw, 24px); font-weight: 700; line-height: 1.5; word-break: keep-all; }
+.login-intro > p:last-child { color: var(--paper-muted); font-size: 14px; line-height: 1.8; }
+.login-form { display: flex; flex-direction: column; margin-top: 28px; }
+.login-form label { font-size: 13px; margin-bottom: 8px; }
+.login-form input { width: 100%; min-width: 0; height: 48px; padding: 0 14px; margin-bottom: 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--ink); color: var(--paper); font-size: 16px; }
+.login-form input[readonly] { color: var(--paper-muted); }
+.login-form input:focus-visible, .login-form button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+.login-form button { display: flex; justify-content: center; align-items: center; gap: 9px; min-height: 48px; border: 0; border-radius: 10px; background: var(--gold); color: #171109; font-weight: 700; }
+.login-form button:hover { background: var(--gold-bright); }
+.login-form button svg { width: 18px; height: 18px; }
+.login-error { color: #ff9c96; font-size: 13px; line-height: 1.6; margin: -6px 0 20px; }
+.login-help { color: var(--paper-muted); font-size: 12px; line-height: 1.8; text-align: center; margin: 20px 0 0; }

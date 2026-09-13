@@ -545,33 +545,91 @@ test('buffered connections still report progress before the final response arriv
   assert.equal((await pending).result, '완료 원고');
 });
 
-test('private Vercel access rejects missing and incorrect credentials', async () => {
-  const { validPrivateAccess, sameOriginMutation } = loadTS('lib/server/private-access.ts');
+test('private Vercel password validation and same-origin checks fail closed', async () => {
+  const { validPrivatePassword, sameOriginMutation } = loadTS('lib/server/private-access.ts');
   const password = 'test-only-strong-password';
-  const basic = value => 'Basic ' + Buffer.from(value).toString('base64');
-  assert.equal(await validPrivateAccess(basic('storywell:' + password), undefined), false);
-  assert.equal(await validPrivateAccess(basic('storywell:' + password), 'short'), false);
-  assert.equal(await validPrivateAccess(basic('other:' + password), password), false);
-  assert.equal(await validPrivateAccess(basic('storywell:wrong'), password), false);
-  assert.equal(await validPrivateAccess(basic('storywell:' + password), password), true);
+  assert.equal(await validPrivatePassword(password, undefined), false);
+  assert.equal(await validPrivatePassword(password, 'short'), false);
+  assert.equal(await validPrivatePassword(null, password), false);
+  assert.equal(await validPrivatePassword('wrong', password), false);
+  assert.equal(await validPrivatePassword(password, password), true);
   assert.equal(sameOriginMutation(new Request('https://storywell.test/api/projects', {method:'POST',headers:{origin:'https://attacker.test'}})), false);
   assert.equal(sameOriginMutation(new Request('https://storywell.test/api/projects', {method:'POST',headers:{origin:'https://storywell.test'}})), true);
 });
 
-test('Vercel proxy fails closed, strips forged owner headers, and preserves Sites access', async t => {
+test('signed sessions reject tampering, expiry, future tokens and password rotation', async () => {
+  const auth = loadTS('lib/server/private-access.ts');
+  const password = 'test-only-strong-password', now = 1800000000;
+  const token = await auth.createPrivateSession(password, now);
+  assert.equal(await auth.validPrivateSession(token, password, now + 1), true);
+  assert.equal(await auth.validPrivateSession(token, password, now + auth.SESSION_MAX_AGE), false);
+  assert.equal(await auth.validPrivateSession(token, password, now - 120), false);
+  assert.equal(await auth.validPrivateSession(token, password + '-rotated', now), false);
+  assert.equal(await auth.validPrivateSession(token.replace('v1.', 'v2.'), password, now), false);
+  assert.equal(await auth.validPrivateSession(token.slice(0,-1) + (token.endsWith('a') ? 'b' : 'a'), password, now), false);
+  assert.equal(await auth.validPrivateSession('invalid', password, now), false);
+  assert.equal(await auth.validPrivateSession(null, password, now), false);
+});
+
+test('Vercel proxy uses persistent login pages, protects APIs and strips forged owner headers', async t => {
   const old = process.env.STORYWELL_ACCESS_PASSWORD;
   t.after(()=>{ if(old===undefined) delete process.env.STORYWELL_ACCESS_PASSWORD; else process.env.STORYWELL_ACCESS_PASSWORD=old; });
   const env = { IS_VERCEL: true };
-  const { proxy } = loadTS('proxy.ts', { '@/lib/server/runtime':{env}, 'next/server': { NextResponse:{ next: options => options ?? { sites: true } } } });
+  const auth = loadTS('lib/server/private-access.ts');
+  const { proxy } = loadTS('proxy.ts', { '@/lib/server/runtime':{env}, 'next/server': { NextResponse:{ next: options => ({ ...options, next:true, headers:new Headers() }) } } });
   delete process.env.STORYWELL_ACCESS_PASSWORD;
   assert.equal((await proxy(new Request('https://storywell.test/api/projects'))).status, 503);
   process.env.STORYWELL_ACCESS_PASSWORD = 'test-only-strong-password';
-  assert.equal((await proxy(new Request('https://storywell.test/api/ai/generate'))).status, 401);
-  const result = await proxy(new Request('https://storywell.test/api/projects', {headers:{authorization:'Basic '+Buffer.from('storywell:'+process.env.STORYWELL_ACCESS_PASSWORD).toString('base64'),'oai-authenticated-user-id':'victim','oai-authenticated-user-email':'forged@example.test'}}));
+  const blocked = await proxy(new Request('https://storywell.test/api/ai/generate'));
+  assert.equal(blocked.status, 401);
+  assert.equal(blocked.headers.has('www-authenticate'), false);
+  const landing = await proxy(new Request('https://storywell.test/'));
+  assert.equal(landing.status, 303);
+  assert.equal(landing.headers.get('location'), 'https://storywell.test/login');
+  assert.equal(landing.headers.has('www-authenticate'), false);
+  assert.equal((await proxy(new Request('https://storywell.test/login'))).next, true);
+  const token = await auth.createPrivateSession(process.env.STORYWELL_ACCESS_PASSWORD);
+  const cookie = auth.SESSION_COOKIE + '=' + token;
+  const result = await proxy(new Request('https://storywell.test/api/projects', {headers:{cookie,'oai-authenticated-user-id':'victim','oai-authenticated-user-email':'forged@example.test'}}));
   assert.equal(result.request.headers.get('oai-authenticated-user-id'), 'private-owner');
   assert.equal(result.request.headers.has('oai-authenticated-user-email'), false);
+  assert.equal(result.headers.get('cache-control'), 'private, no-store');
+  assert.equal((await proxy(new Request('https://storywell.test/api/projects', {method:'POST',headers:{cookie,origin:'https://attacker.test'}}))).status,403);
+  assert.equal((await proxy(new Request('https://storywell.test/login', {headers:{cookie}}))).headers.get('location'),'https://storywell.test/');
   env.IS_VERCEL = false;
-  assert.equal((await proxy(new Request('https://storywell.test'))).sites, true);
+  assert.equal((await proxy(new Request('https://storywell.test'))).next, true);
+});
+
+test('login form issues a protected cookie only for valid credentials; logout clears it', async t => {
+  const old = process.env.STORYWELL_ACCESS_PASSWORD;
+  t.after(()=>{ if(old===undefined) delete process.env.STORYWELL_ACCESS_PASSWORD; else process.env.STORYWELL_ACCESS_PASSWORD=old; });
+  const env = { IS_VERCEL: true };
+  const bindings = { '@/lib/server/runtime':{env} };
+  const login = loadTS('app/api/auth/login/route.ts', bindings);
+  const logout = loadTS('app/api/auth/logout/route.ts', bindings);
+  const auth = loadTS('lib/server/private-access.ts');
+  const password = 'test-only-strong-password';
+  process.env.STORYWELL_ACCESS_PASSWORD = password;
+  const request = (supplied, origin='https://storywell.test', username='storywell') => new Request('https://storywell.test/api/auth/login', {method:'POST',headers:{origin},body:new URLSearchParams({username,password:supplied})});
+  const incorrect = await login.POST(request('wrong'));
+  assert.equal(incorrect.status,303); assert.equal(incorrect.headers.get('location'),'https://storywell.test/login?error=invalid');
+  assert.equal(incorrect.headers.has('set-cookie'),false);
+  assert.equal((await login.POST(request(password,'https://attacker.test'))).status,403);
+  assert.equal((await login.POST(request(password,'https://storywell.test','other'))).headers.has('set-cookie'),false);
+  const response = await login.POST(request(password));
+  assert.equal(response.status,303); assert.equal(response.headers.get('location'),'https://storywell.test/');
+  const cookie = response.headers.get('set-cookie');
+  for (const flag of ['__Host-storywell_session=','Path=/','HttpOnly','Secure','SameSite=Lax','Max-Age=604800']) assert.ok(cookie.includes(flag));
+  assert.equal(cookie.includes(password),false);
+  const session = auth.privateSessionFrom(new Request('https://storywell.test/',{headers:{cookie:cookie.split(';')[0]}}));
+  assert.equal(await auth.validPrivateSession(session,password),true);
+  const cleared = await logout.POST(new Request('https://storywell.test/api/auth/logout',{method:'POST',headers:{origin:'https://storywell.test'}}));
+  assert.equal(cleared.headers.get('location'),'https://storywell.test/login'); assert.ok(cleared.headers.get('set-cookie').includes('Max-Age=0'));
+  assert.equal((await logout.POST(new Request('https://storywell.test/api/auth/logout',{method:'POST',headers:{origin:'https://attacker.test'}}))).status,403);
+  delete process.env.STORYWELL_ACCESS_PASSWORD;
+  assert.equal((await login.POST(request(password))).status,503);
+  env.IS_VERCEL = false;
+  assert.equal((await login.POST(request(password))).status,404);
 });
 
 test('Postgres adapter preserves quoted question marks and binds values separately', async () => {
