@@ -24,3 +24,11 @@ After adding the database, the application initializes its three tables on the f
 The connection uses validated TLS; project/history deletion remains atomic.
 
 The new Postgres workspace does not automatically contain works from the Sites D1 database. Keep the original site until a separately verified data migration is complete.
+
+## Deployment status
+
+Production URL: https://storywell-amber.vercel.app
+Initial deployment READY: e1bb32d, dpl_2JvFgTDn8pLL1r5dQhWbaVyy3rJi.
+Workspace/API are intentionally closed with HTTP 503 until the owner configures the private password.
+Neon integration terms and owner-entered secrets are pending; no Vercel data or AI generation has been tested yet.
+Vercel plans now continue across requests (bible, then at most 20 chapters each). The request timeout is 270 seconds under the 300-second platform limit.

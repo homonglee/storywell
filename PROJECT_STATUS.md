@@ -2,7 +2,7 @@
 
 ## 현재 상태
 
-- 헤더 StoryWell Ver2.0 변경은 GitHub main에 커밋·푸시 완료(d7852b8). 사용자 요청 대상은 Vercel이며, 배포 대상 확인 대기. 아래 버전 12는 현재 운영 중인 Sites 버전으로 헤더 변경이 아직 게시되지 않았음
+- StoryWell Ver2.0은 Vercel Homong's projects / storywell에 최초 배포 Ready 확인. 주소 https://storywell-amber.vercel.app . 현재 비밀번호·OpenAI 키·Neon 연결 설정 대기. 아래 버전 12는 별도로 유지 중인 기존 Sites 서비스이며 Vercel로 데이터가 자동 이전되지는 않음
 
 - 2026-09-13 18:28 KST, StoryWell 버전 12 게시 성공 확인
 - 사이트: https://storywell-webnovel-studio.homong-lee.chatgpt.site
@@ -167,3 +167,22 @@
 - Vercel 배포 도구 호출은 입력 검증 단계에서 중단되었으며 배포가 만들어지지 않음
 - 이 앱은 현재 Cloudflare Workers·D1·Sites 인증에 연결되어 있어 Vercel로 옮기려면 서버 실행 환경·데이터 저장·인증 연결도 전환해야 함
 - 배포 대상 Vercel 프로젝트 주소/팀 또는 기존 Sites 게시 의도 확인을 사용자에게 요청함. Vercel 배포 성공으로 보고하지 않았으며 Sites에도 대신 게시하지 않음
+
+## 2026-09-13 Vercel 최초 배포 — Ready, 비밀값·저장소 연결 대기
+
+- 사용자 스크린샷과 실제 Chrome 가져오기 화면으로 Homong's projects (homongs-projects), storywell, homonglee/storywell main 대상 확인
+- Vercel 커넥터는 팀 목록이 비어 있어 로그인된 Chrome의 지정 화면으로 배포 진행
+- Next.js + Node.js용 Vercel 빌드와 PostgreSQL 연결 계층 추가. Sites는 별도 resolver로 Cloudflare D1·기존 인증 유지. Sites 산출물에 PostgreSQL 구현이 포함되지 않는 것을 확인
+- 비밀번호 미설정 시 모든 작업실/API 요청을 503으로 차단. 16자 이상 STORYWELL_ACCESS_PASSWORD 설정 후 사용자 이름 storywell로 비공개 접근. 외부에서 보낸 소유자 헤더는 제거하고 단일 작업실 소유자로 고정. 다른 출처의 변경 요청 차단
+- PostgreSQL 연결은 DATABASE_URL 또는 POSTGRES_URL 사용. TLS 검증 유지, SQL 값은 매개변수로 전달, 작품·이력 삭제는 트랜잭션. 테이블 초기화는 첫 인증된 DB 요청에서 실행하며 현재 DB가 없으므로 미실행
+- Vercel Hobby 실행 시간에 맞춰 설계는 인물·세계관과 20회차 구간별 요청으로 연결. 구간별 270초 제한 및 완료 결과만 최종 이력 저장. 기존 Sites는 12분 제한과 전체 흐름 유지
+- 35개 회귀 테스트 통과. 최종 Next.js 빌드·타입 검사 통과. Sites 빌드 성공과 실제 Sites 실행 환경 선택 확인
+- GitHub main 소스 커밋 e1bb32d31bba7917f9bd358aa96fc5449cbdf3d2로 Vercel 배포 Ready 확인
+- Vercel 배포 ID: dpl_2JvFgTDn8pLL1r5dQhWbaVyy3rJi
+- 운영 주소: https://storywell-amber.vercel.app
+- 프로젝트: https://vercel.com/homongs-projects/storywell
+- 실제 HTTP 검사에서 / 및 /api/projects 모두 503, StoryWell Ver2.0 설정 대기 화면 확인. 데이터 및 AI API가 공개되지 않음
+- Storage에서 새 Neon 연결 선택 후 Accept and Create 약관 동의 직전에 대기. Vercel ID·이메일·사용 정보의 Neon 공유 가능성과 새 약관 동의 확인을 사용자에게 요청. 동의 확정·DB 생성·과금은 수행하지 않음
+- 다른 Chrome 탭에 OPENAI_API_KEY, STORYWELL_ACCESS_PASSWORD 키 이름을 미리 입력. Secret / Production 선택, 값은 비어 있고 저장하지 않음. 사용자가 직접 값을 넣고 Save한 뒤 재배포 필요
+- 실제 Vercel DB 저장 및 AI 생성은 설정 완료 후 검증해야 함. 기존 Sites 자료는 유지되며 이전·삭제하지 않음
+- 다음 단계: Neon 동의 → 무료 요금제/DB 생성 및 storywell 연결 → 사용자 비밀값 저장 → 재배포 → 실제 저장·AI 검증
