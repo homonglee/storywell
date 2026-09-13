@@ -2,6 +2,8 @@
 
 ## 현재 상태
 
+- 헤더 StoryWell Ver2.0 변경은 GitHub main에 커밋·푸시 완료(d7852b8). 사용자 요청 대상은 Vercel이며, 배포 대상 확인 대기. 아래 버전 12는 현재 운영 중인 Sites 버전으로 헤더 변경이 아직 게시되지 않았음
+
 - 2026-09-13 18:28 KST, StoryWell 버전 12 게시 성공 확인
 - 사이트: https://storywell-webnovel-studio.homong-lee.chatgpt.site
 - 게시된 코드: 750f091b5349d1180367443ddb3c73603eda783d
@@ -155,3 +157,13 @@
 - 버전 12: appgprj_6aa50dc559308191a71aa3139d16e33a~appgver_0a66c1f344cc81918d95a43a02d5ee25
 - 배포: appgdep_6aa66c8842c08191afa285bf687b8282, succeeded. 같은 사이트 주소·소유자 전용 접근·기존 API 키 유지
 - 새 코드를 받으려면 사이트를 새로고침. 기존에 고정 샘플로 만들어진 작품은 해당 작품에서 AI로 전체 설계를 실행. 긴 설계는 진행 단계가 표시되는 동안 기다리거나 작업 취소 가능
+
+## 2026-09-13 StoryWell Ver2.0 헤더 및 Vercel 배포 요청
+
+- 헤더 표시를 StoryWell Ver2.0으로 변경. 기능과 저장 자료는 변경하지 않음
+- TypeScript 검사와 기존 Sites 배포 빌드 성공, Git diff 검사 통과
+- 소스 커밋 d7852b8, GitHub main 푸시 완료
+- Vercel 팀 조회 결과 teams가 비어 있고, .vercel/project.json 및 Vercel CLI 로그인 설정을 찾지 못함
+- Vercel 배포 도구 호출은 입력 검증 단계에서 중단되었으며 배포가 만들어지지 않음
+- 이 앱은 현재 Cloudflare Workers·D1·Sites 인증에 연결되어 있어 Vercel로 옮기려면 서버 실행 환경·데이터 저장·인증 연결도 전환해야 함
+- 배포 대상 Vercel 프로젝트 주소/팀 또는 기존 Sites 게시 의도 확인을 사용자에게 요청함. Vercel 배포 성공으로 보고하지 않았으며 Sites에도 대신 게시하지 않음
