@@ -624,7 +624,7 @@ export default function StoryStudio() {
       <header className="studio-header">
         <button className="mobile-menu" aria-label="작품 목록 열기" onClick={() => setMobileOpen(true)}><Menu /></button>
         <div className="brand-mark" aria-hidden="true"><Feather /></div>
-        <div className="brand-copy"><strong>StoryWell</strong><span>웹소설 창작 스튜디오</span></div>
+        <div className="brand-copy"><strong>StoryWell Ver2.0</strong><span>웹소설 창작 스튜디오</span></div>
         <div className="header-divider" />
         <div className="project-crumb"><BookMarked /><span>{current.title}</span></div>
         <div className="header-actions">
