@@ -1,4 +1,4 @@
-import { DEFAULT_TARGET_CHARACTERS } from "@/lib/episode-target";
+import { getTargetCharacters, isValidTargetCharacters } from "@/lib/episode-target";
 
 export type Character = {
   id: string;
@@ -101,7 +101,7 @@ export type StoryProject = {
 export type ProjectInput = Pick<
   StoryProject,
   "title" | "synopsis" | "genre" | "tone" | "targetEpisodes"
->;
+> & { targetCharacters?: number };
 
 const stageNames = [
   "낯선 균열",
@@ -164,6 +164,8 @@ function excerpt(synopsis: string, length = 72) {
 }
 
 export function buildStory(input: ProjectInput): StoryContent {
+  if (input.targetCharacters !== undefined && !isValidTargetCharacters(input.targetCharacters)) throw new Error("회차당 목표 글자 수는 1~20,000 사이의 정수로 입력해 주세요.");
+  const targetCharacters = getTargetCharacters(input);
   const total = Math.max(12, Math.min(200, Number(input.targetEpisodes) || 80));
   const shortSynopsis = excerpt(input.synopsis);
   const arcSize = Math.max(1, Math.ceil(total / 12));
@@ -237,7 +239,7 @@ export function buildStory(input: ProjectInput): StoryContent {
         : "주인공만 알아볼 수 있는 흔적이 예상하지 못한 장소에서 발견된다.",
       status: number === 1 ? "draft" : "planned",
       words: number === 1 ? 1260 : 0,
-      targetCharacters: DEFAULT_TARGET_CHARACTERS,
+      targetCharacters,
     };
   });
 

@@ -521,3 +521,30 @@ button { cursor: pointer; }
   .episode-item .episode-target-error { grid-column: 1 / -1; }
   .episode-length-control { padding: 12px; }
 }
+
+/* Project defaults and character editing. */
+.new-project-dialog, .character-editor-dialog { max-height: 90vh; max-height: 90dvh; overflow-y: auto; overscroll-behavior: contain; }
+.project-setup-grid, .character-editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.new-project-dialog .dialog-fields label > span, .character-editor-dialog .dialog-fields label > span { font-size: 14px; }
+.new-project-dialog .dialog-fields label > small { color: #929baa; font-size: 12px; line-height: 1.5; text-align: left; }
+.character-editor-grid label { min-width: 0; }
+.character-editor-grid label em { margin-left: 5px; color: #e9aa42; font-size: 12px; font-style: normal; }
+.character-editor-grid textarea { min-height: 96px; resize: vertical; line-height: 1.6; font-size: 16px; }
+.character-editor-grid input { height: 44px; font-size: 16px; }
+.character-editor-grid .character-color-input { max-width: 130px; padding: 4px; cursor: pointer; }
+.character-wide-field { grid-column: 1 / -1; }
+.character-editor-footer { flex-wrap: wrap; gap: 8px; }
+.character-editor-footer > button { min-height: 44px; }
+.character-editor-footer .character-delete-button { margin-right: auto; border-color: #70454b; color: #ffb1ae; }
+.character-head h3, .character-head p, .character-facts dd, .character-state { overflow-wrap: anywhere; }
+.character-head [data-slot="badge"] { white-space: normal; line-height: 1.5; }
+.character-facts dd, .character-state { white-space: pre-wrap; }
+.character-edit-button { min-height: 40px; gap: 5px; }
+.character-empty-state { grid-column: 1 / -1; padding: 32px 20px; border: 1px dashed var(--line); border-radius: 14px; color: #aeb6c4; text-align: center; }
+@media (max-width: 520px) {
+  .project-setup-grid, .character-editor-grid { grid-template-columns: minmax(0, 1fr); }
+  .character-head { grid-template-columns: 48px minmax(0, 1fr); }
+  .character-head > .character-edit-button { grid-column: 1 / -1; justify-self: end; }
+  .character-editor-footer > button { width: 100%; }
+  .character-editor-footer .character-delete-button { margin-right: 0; }
+}

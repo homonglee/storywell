@@ -43,6 +43,7 @@ function fixture(t, options = {}) {
     prepare(sql) {
       return { bind(...args) {
         return { async all() { return { results: sqlite.prepare(sql).all(...args) }; }, async run() {
+          if (options.failProjectUpdate && sql.startsWith('UPDATE story_projects')) throw new Error('Simulated update failure');
           if (options.failProjectDelete && sql.startsWith('DELETE FROM story_projects')) throw new Error('Simulated database failure');
           const result = sqlite.prepare(sql).run(...args);
           return { meta: { changes: Number(result.changes) } };
@@ -265,4 +266,76 @@ test('AI rejects invalid targets before calling the provider and defaults older 
   assert.equal(sent.length, 0);
   assert.equal((await route.POST(generationRequest(f.project))).status, 200);
   assert.match(sent[0].input, /공백 포함 목표 5000자/);
+});
+
+test('new story length defaults apply to every episode and reject invalid values', () => {
+  const { buildStory } = loadTS('lib/story-engine.ts');
+  const input = { title: '목표 검증', synopsis: '설정한 분량으로 이야기를 설계한다.', genre: 'SF', tone: '긴장', targetEpisodes: 12 };
+  assert.ok(buildStory({ ...input, targetCharacters: 3400 }).episodes.every(episode => episode.targetCharacters === 3400));
+  assert.ok(buildStory(input).episodes.every(episode => episode.targetCharacters === 5000));
+  for (const targetCharacters of [0, -1, 1.5, 20001, NaN]) assert.throws(() => buildStory({ ...input, targetCharacters }), /회차당 목표 글자 수/);
+});
+
+test('character edits and deletion select stable IDs and preserve other story data', () => {
+  const { createCharacterDraft, saveCharacterInProject, removeCharacterFromProject } = loadTS('lib/character-editor.ts');
+  const first = { ...createCharacterDraft(), name: '같은 이름' };
+  const second = { ...createCharacterDraft(), name: '같은 이름' };
+  const project = { content: { characters: [first, second], manuscript: '기존 원고', episodes: [{ number: 1, targetCharacters: 3400 }], memories: [{ subject: '기존 기억' }] } };
+  const changed = saveCharacterInProject(project, { ...first, name: '  새 이름  ', role: '주인공', archetype: '관찰자', desire: '진실', fear: '망각', secret: '목격자', voice: '짧은 말', state: '조사 중', color: '#123456' }, false);
+  assert.equal(changed.content.characters[0].name, '새 이름');
+  assert.equal(changed.content.characters[0].id, first.id);
+  assert.equal(changed.content.characters[1], second);
+  assert.equal(project.content.characters[0].name, '같은 이름');
+  const removed = removeCharacterFromProject(changed, first.id);
+  assert.deepEqual(removed.content.characters, [second]);
+  assert.equal(removed.content.manuscript, project.content.manuscript);
+  assert.equal(removed.content.episodes, project.content.episodes);
+  assert.equal(removed.content.memories, project.content.memories);
+  assert.deepEqual(removeCharacterFromProject(removed, second.id).content.characters, []);
+  assert.throws(() => saveCharacterInProject(project, { ...first, name: ' ' }, false), /인물 이름/);
+  assert.throws(() => saveCharacterInProject(project, first, true), /이미 추가/);
+  assert.throws(() => removeCharacterFromProject(project, 'missing'), /찾지 못/);
+});
+
+test('all character fields and new story targets persist through create, edit, add, delete and reload', async t => {
+  const f = fixture(t);
+  const { buildStory } = loadTS('lib/story-engine.ts');
+  const { createCharacterDraft, saveCharacterInProject, removeCharacterFromProject } = loadTS('lib/character-editor.ts');
+  const bindings = { 'cloudflare:workers': { env: { DB: f.DB } } };
+  const collection = loadTS('app/api/projects/route.ts', bindings);
+  const item = loadTS('app/api/projects/[id]/route.ts', bindings);
+  const headers = { 'Content-Type': 'application/json', 'oai-authenticated-user-id': 'owner-a' };
+  const response = await collection.POST(new Request('https://storywell.test/api/projects', { method: 'POST', headers, body: JSON.stringify({ ...f.project, content: buildStory({ ...f.project, targetCharacters: 3400 }) }) }));
+  assert.equal(response.status, 201);
+  let project = (await response.json()).project;
+  const originalManuscript = project.content.manuscript;
+  const edited = { ...project.content.characters[0], name: '새 주인공', role: '탐정', archetype: '추적자', desire: '기억 찾기', fear: '잊히는 것', secret: '열쇠의 주인', voice: '낮고 느린 말투', state: '증거를 확보함', color: '#abcdef' };
+  project = saveCharacterInProject(project, edited, false);
+  const added = { ...createCharacterDraft(), name: '새 인물', secret: '새 비밀' };
+  project = saveCharacterInProject(project, added, true);
+  const put = async project => item.PUT(new Request('https://storywell.test/api/projects/' + project.id, { method: 'PUT', headers, body: JSON.stringify(project) }), { params: Promise.resolve({ id: project.id }) });
+  assert.equal((await put(project)).status, 200);
+  let loaded = (await (await collection.GET(new Request('https://storywell.test/api/projects', { headers }))).json()).projects.find(value => value.id === project.id);
+  assert.deepEqual(loaded.content.characters[0], edited);
+  assert.deepEqual(loaded.content.characters.at(-1), added);
+  project = removeCharacterFromProject(loaded, added.id);
+  assert.equal((await put(project)).status, 200);
+  loaded = (await (await collection.GET(new Request('https://storywell.test/api/projects', { headers }))).json()).projects.find(value => value.id === project.id);
+  assert.equal(loaded.content.characters.length, 4);
+  assert.equal(loaded.content.manuscript, originalManuscript);
+  assert.ok(loaded.content.episodes.every(episode => episode.targetCharacters === 3400));
+});
+
+test('blank character names and failed saves do not overwrite saved characters', async t => {
+  const f = fixture(t, { failProjectUpdate: true });
+  const bindings = { 'cloudflare:workers': { env: { DB: f.DB } } };
+  const collection = loadTS('app/api/projects/route.ts', bindings);
+  const item = loadTS('app/api/projects/[id]/route.ts', bindings);
+  const headers = { 'Content-Type': 'application/json', 'oai-authenticated-user-id': 'owner-a' };
+  const invalidBody = JSON.stringify({ ...f.project, content: { characters: [{ id: 'lead', name: ' ' }] } });
+  assert.equal((await collection.POST(new Request('https://storywell.test/api/projects', { method: 'POST', headers, body: invalidBody }))).status, 400);
+  assert.equal((await item.PUT(new Request('https://storywell.test/api/projects/project-a', { method: 'PUT', headers, body: invalidBody }), params())).status, 400);
+  const validBody = JSON.stringify({ ...f.project, content: { characters: [{ id: 'lead', name: '보존할 편집값' }] } });
+  assert.equal((await item.PUT(new Request('https://storywell.test/api/projects/project-a', { method: 'PUT', headers, body: validBody }), params())).status, 500);
+  assert.equal(f.sqlite.prepare('SELECT content FROM story_projects WHERE id = ?').get('project-a').content, '{}');
 });

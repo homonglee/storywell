@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookMarked, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronRight, CircleAlert, Clock3, Download, FileText, GitBranch, Lightbulb, LoaderCircle, Menu, MoreHorizontal, Plus, RotateCcw, Save, Search, Square, Trash2, RefreshCw, ShieldCheck, Sparkles, Target, Users, WandSparkles, X, Feather } from "lucide-react";
+import { BookMarked, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronRight, CircleAlert, Clock3, Download, FileText, GitBranch, Lightbulb, LoaderCircle, Menu, Pencil, Plus, RotateCcw, Save, Search, Square, Trash2, RefreshCw, ShieldCheck, Sparkles, Target, Users, WandSparkles, X, Feather } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,17 +13,19 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Toaster } from "@/components/ui/sonner";
-import { buildStory, createSampleProject, type EpisodeDraft, type ProjectInput, type StoryIdea, type StoryProject } from "@/lib/story-engine";
+import { buildStory, createSampleProject, type Character, type EpisodeDraft, type ProjectInput, type StoryIdea, type StoryProject } from "@/lib/story-engine";
 
 import { isAIAbort, requestAI } from "@/lib/ai-request";
 import { EpisodeTargetInput } from "@/components/episode-target-input";
-import { getContentTargetError, getTargetCharacters, setEpisodeTarget, withEpisodeTargets } from "@/lib/episode-target";
+import { CharacterEditorDialog } from "@/components/character-editor-dialog";
+import { createCharacterDraft, saveCharacterInProject, removeCharacterFromProject } from "@/lib/character-editor";
+import { DEFAULT_TARGET_CHARACTERS, MAX_TARGET_CHARACTERS, getContentTargetError, getTargetCharacters, setEpisodeTarget, withEpisodeTargets } from "@/lib/episode-target";
 
 const genres = ["현대 판타지", "로맨스 판타지", "미스터리", "무협", "SF", "로맨스", "드라마"];
 const tones = ["빠르고 통쾌한", "서늘하지만 따뜻한", "유쾌하고 경쾌한", "묵직하고 서정적인", "긴장감 있고 어두운"];
 type ModelTool = { name: string; title?: string; description: string; inputSchema: Record<string, unknown>; annotations?: { readOnlyHint?: boolean; untrustedContentHint?: boolean }; execute: (input: unknown) => unknown | Promise<unknown> };
 type ModelContextDocument = Document & { modelContext?: { registerTool: (tool: ModelTool, options?: { signal?: AbortSignal }) => void | Promise<void> } };
-const initialForm: ProjectInput = { title: "", synopsis: "", genre: "현대 판타지", tone: "서늘하지만 따뜻한", targetEpisodes: 80 };
+const initialForm: ProjectInput = { title: "", synopsis: "", genre: "현대 판타지", tone: "서늘하지만 따뜻한", targetEpisodes: 80, targetCharacters: DEFAULT_TARGET_CHARACTERS };
 type AIAction = "plan" | "episode" | "rewrite" | "analyze";
 const aiActionLabels: Record<AIAction, string> = { plan: "전체 설계", episode: "회차 집필", rewrite: "원고 다듬기", analyze: "연속성 검사" };
 type GenerationVersion = { id: string; action: "plan" | "episode" | "rewrite" | "analyze"; model: string; inputSummary: string; output: string; createdAt: string };
@@ -130,6 +132,8 @@ export default function StoryStudio() {
   const [rewriteInstruction, setRewriteInstruction] = useState("");
   const [rewriteProposal, setRewriteProposal] = useState<RewriteProposal | null>(null);
   const manuscriptRef = useRef<HTMLTextAreaElement | null>(null);
+  const [characterEditor, setCharacterEditor] = useState<{ projectId: string; original: Character | null; draft: Character } | null>(null);
+  const characterEditorDirty = Boolean(characterEditor && JSON.stringify(characterEditor.original) !== JSON.stringify(characterEditor.draft));
 
   const savedCurrent = projects.find((project) => project.id === current.id);
   const hasUnsavedChanges = current !== (savedCurrent ?? sample);
@@ -137,11 +141,11 @@ export default function StoryStudio() {
 
   useEffect(() => () => { aiControllerRef.current?.abort(); }, []);
   useEffect(() => {
-    if (!hasUnsavedChanges) return;
+    if (!hasUnsavedChanges && !characterEditorDirty) return;
     const protectDraft = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
     window.addEventListener("beforeunload", protectDraft);
     return () => window.removeEventListener("beforeunload", protectDraft);
-  }, [hasUnsavedChanges]);
+  }, [hasUnsavedChanges, characterEditorDirty]);
 
   useEffect(() => {
     let active = true;
@@ -233,11 +237,11 @@ export default function StoryStudio() {
         name: "create_story_project",
         title: "새 웹소설 설계",
         description: "제목과 시놉시스로 새 웹소설 프로젝트를 만들고 전체 회차, 인물, 복선, 소재를 설계합니다.",
-        inputSchema: { type: "object", properties: { title: { type: "string" }, synopsis: { type: "string" }, genre: { type: "string" }, tone: { type: "string" }, targetEpisodes: { type: "integer", minimum: 12, maximum: 200 } }, required: ["title", "synopsis"], additionalProperties: false },
+        inputSchema: { type: "object", properties: { title: { type: "string" }, synopsis: { type: "string" }, genre: { type: "string" }, tone: { type: "string" }, targetEpisodes: { type: "integer", minimum: 12, maximum: 200 }, targetCharacters: { type: "integer", minimum: 1, maximum: MAX_TARGET_CHARACTERS, description: "모든 회차의 초기 목표 글자 수(공백 포함), 기본 5000" } }, required: ["title", "synopsis"], additionalProperties: false },
         annotations: { readOnlyHint: false, untrustedContentHint: true },
         execute: async (value) => {
           const input = value as Partial<ProjectInput>;
-          const project = await createProject({ title: String(input.title ?? ""), synopsis: String(input.synopsis ?? ""), genre: String(input.genre ?? "현대 판타지"), tone: String(input.tone ?? "서늘하지만 따뜻한"), targetEpisodes: Number(input.targetEpisodes ?? 80) });
+          const project = await createProject({ title: String(input.title ?? ""), synopsis: String(input.synopsis ?? ""), genre: String(input.genre ?? "현대 판타지"), tone: String(input.tone ?? "서늘하지만 따뜻한"), targetEpisodes: Number(input.targetEpisodes ?? 80), targetCharacters: input.targetCharacters === undefined ? undefined : Number(input.targetCharacters) });
           return { id: project.id, title: project.title, episodes: project.targetEpisodes, status: project.status };
         },
       }, { signal: lifecycle.signal });
@@ -505,26 +509,28 @@ export default function StoryStudio() {
     updateContent({ ideas: [next, ...current.content.ideas] });
     toast.success("현재 맥락에서 새 소재를 길어 올렸습니다.");
   };
-  const addCharacter = () => {
-    const number = current.content.characters.length + 1;
-    updateContent({
-      characters: [
-        ...current.content.characters,
-        {
-          id: "character-" + Date.now(),
-          name: "새 인물 " + number,
-          role: "조연",
-          archetype: "변화를 촉발하는 방문자",
-          desire: "자신의 목적을 이루기 위해 주인공의 선택에 개입한다.",
-          fear: "진짜 의도가 드러나는 것",
-          secret: "핵심 사건의 일부를 목격했다.",
-          voice: "필요한 말만 하며 중요한 단어를 반복한다.",
-          state: "설정 보완 필요",
-          color: "#8ec5a4",
-        },
-      ],
-    });
-    toast.success("새 인물 카드를 추가했습니다.");
+  const addCharacter = () => setCharacterEditor({ projectId: current.id, original: null, draft: createCharacterDraft() });
+  const saveCharacter = async () => {
+    if (!characterEditor || busy) return;
+    try {
+      if (characterEditor.projectId !== current.id) throw new Error("작품이 변경되었습니다. 편집창을 닫고 다시 선택해 주세요.");
+      const updated = saveCharacterInProject(current, characterEditor.draft, !characterEditor.original);
+      await persistUpdated(updated, characterEditor.original ? "인물 설정을 저장했습니다." : "새 인물을 추가하고 저장했습니다.");
+      setCharacterEditor(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "인물을 저장하지 못했습니다. 입력 내용은 유지됩니다.");
+    }
+  };
+  const deleteCharacter = async () => {
+    if (!characterEditor?.original || busy) return;
+    try {
+      if (characterEditor.projectId !== current.id) throw new Error("작품이 변경되었습니다. 편집창을 닫고 다시 선택해 주세요.");
+      const updated = removeCharacterFromProject(current, characterEditor.original.id);
+      await persistUpdated(updated, characterEditor.original.name + " 인물을 삭제했습니다.");
+      setCharacterEditor(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "인물을 삭제하지 못했습니다.");
+    }
   };
   const addForeshadow = () => {
     updateContent({
@@ -689,9 +695,10 @@ export default function StoryStudio() {
             <TabsContent value="characters" className="tab-panel">
               <div className="section-title"><div><span>CHARACTER BIBLE</span><h2>욕망이 이야기를 움직이는 인물</h2></div><Button variant="outline" disabled={busy} onClick={addCharacter}><Plus />인물 추가</Button></div>
               <div className="character-grid">
+                {!current.content.characters.length ? <p className="character-empty-state">등록된 인물이 없습니다. ‘인물 추가’로 새 캐릭터를 만들어 보세요.</p> : null}
                 {current.content.characters.map((character) => (
                   <article className="character-card" key={character.id}>
-                    <div className="character-head"><span className="character-avatar" style={{ background: character.color }}>{character.name.slice(0, 1)}</span><div><Badge variant="outline">{character.role}</Badge><h3>{character.name}</h3><p>{character.archetype}</p></div><Button size="icon-sm" variant="ghost" aria-label={character.name + " 메뉴"}><MoreHorizontal /></Button></div>
+                    <div className="character-head"><span className="character-avatar" style={{ background: character.color }}>{character.name.slice(0, 1)}</span><div><Badge variant="outline">{character.role}</Badge><h3>{character.name}</h3><p>{character.archetype}</p></div><Button size="sm" variant="outline" className="character-edit-button" disabled={busy} aria-label={character.name + " 편집"} onClick={() => setCharacterEditor({ projectId: current.id, original: character, draft: { ...character } })}><Pencil />편집</Button></div>
                     <dl className="character-facts"><div><dt>욕망</dt><dd>{character.desire}</dd></div><div><dt>두려움</dt><dd>{character.fear}</dd></div><div><dt>숨은 비밀</dt><dd>{character.secret}</dd></div><div><dt>목소리</dt><dd>{character.voice}</dd></div></dl>
                     <div className="character-state"><span className="save-dot" />현재: {character.state}</div>
                   </article>
@@ -784,20 +791,24 @@ export default function StoryStudio() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="project-dialog sm:max-w-2xl">
+      {characterEditor ? <CharacterEditorDialog key={characterEditor.projectId + ":" + characterEditor.draft.id} draft={characterEditor.draft} originalName={characterEditor.original?.name} isNew={!characterEditor.original} busy={busy}
+        onChange={draft => setCharacterEditor(editor => editor ? { ...editor, draft } : null)} onClose={() => setCharacterEditor(null)} onSave={saveCharacter} onDelete={deleteCharacter} /> : null}
+
+      <Dialog open={dialogOpen} onOpenChange={open => { if (!busy) setDialogOpen(open); }}>
+        <DialogContent className="project-dialog new-project-dialog sm:max-w-2xl" showCloseButton={!busy}>
           <form onSubmit={submitProject}>
             <DialogHeader><div className="dialog-icon"><BookOpenText /></div><DialogTitle>새 이야기의 씨앗</DialogTitle><DialogDescription>임시 제목과 짧은 시놉시스만 입력하세요. 인물, 세계관, 전체 회차와 복선까지 한 번에 설계합니다.</DialogDescription></DialogHeader>
-            <div className="dialog-fields">
+            <fieldset className="dialog-fields" disabled={busy}>
               <label><span>임시 제목</span><Input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="예: 달빛 아래 마지막 편집자" autoFocus /></label>
               <label><span>간단한 시놉시스</span><Textarea value={form.synopsis} onChange={(event) => setForm({ ...form, synopsis: event.target.value })} placeholder="주인공은 누구이며, 무엇을 원하고, 어떤 문제와 마주합니까?" className="min-h-32" /><small>{form.synopsis.length}자 · 5~20줄을 권장합니다</small></label>
-              <div className="dialog-field-grid">
+              <div className="dialog-field-grid project-setup-grid">
                 <label><span>장르</span><NativeSelect value={form.genre} onChange={(event) => setForm({ ...form, genre: event.target.value })}>{genres.map((genre) => <NativeSelectOption value={genre} key={genre}>{genre}</NativeSelectOption>)}</NativeSelect></label>
                 <label><span>작품 톤</span><NativeSelect value={form.tone} onChange={(event) => setForm({ ...form, tone: event.target.value })}>{tones.map((tone) => <NativeSelectOption value={tone} key={tone}>{tone}</NativeSelectOption>)}</NativeSelect></label>
                 <label><span>목표 회차</span><Input type="number" min={12} max={200} value={form.targetEpisodes} onChange={(event) => setForm({ ...form, targetEpisodes: Number(event.target.value) })} /></label>
+                <label><span>회차당 목표 글자 수</span><Input type="number" inputMode="numeric" min={1} max={MAX_TARGET_CHARACTERS} step={1} value={form.targetCharacters ?? ""} placeholder={String(DEFAULT_TARGET_CHARACTERS)} onChange={event => setForm({ ...form, targetCharacters: event.target.value === "" ? undefined : Number(event.target.value) })} /><small>공백 포함 · 기본 5,000자. 모든 회차에 적용되며 나중에 각 회차에서 바꿀 수 있습니다.</small></label>
               </div>
-            </div>
-            <DialogFooter><Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>취소</Button><Button type="submit" className="magic-button" disabled={busy}><WandSparkles />{saving ? "설계하는 중…" : "전체 이야기 설계"}</Button></DialogFooter>
+            </fieldset>
+            <DialogFooter><Button type="button" variant="ghost" disabled={busy} onClick={() => setDialogOpen(false)}>취소</Button><Button type="submit" className="magic-button" disabled={busy}><WandSparkles />{saving ? "설계하는 중…" : "전체 이야기 설계"}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
@@ -821,8 +832,8 @@ export default function StoryStudio() {
               <a href="#manual-tips">8. 작업 팁</a>
             </nav>
             <div className="manual-content">
-              <section id="manual-start"><h3>1. 시작하기</h3><p><strong>새 작품 설계</strong>를 눌러 제목, 시놉시스, 장르, 톤과 목표 회차를 입력합니다. 짧은 시놉시스에는 주인공, 원하는 것, 가장 큰 장애물을 담으면 더 선명한 설계가 만들어집니다.</p></section>
-              <section id="manual-plan"><h3>2. 전체 설계 읽기</h3><p>첫 화면의 <strong>전체 설계</strong> 탭에서 로그라인, 핵심 질문, 세계관 규칙과 12단계 이야기 지도를 확인합니다. 지도에서 원하는 구간을 누르면 해당 회차가 선택됩니다.</p><p><strong>캐릭터</strong> 탭에서는 욕망·두려움·비밀·말투를, <strong>회차</strong> 탭에서는 각 화의 사건과 감정, 마지막 훅을 살펴볼 수 있습니다.</p></section>
+              <section id="manual-start"><h3>1. 시작하기</h3><p><strong>새 작품 설계</strong>를 눌러 제목, 시놉시스, 장르, 톤, 목표 회차와 <strong>회차당 목표 글자 수</strong>를 입력합니다. 입력한 글자 수는 모든 회차의 초기 목표가 되며, 이후 회차별로 바꿀 수 있습니다. 짧은 시놉시스에는 주인공, 원하는 것, 가장 큰 장애물을 담으면 더 선명한 설계가 만들어집니다.</p></section>
+              <section id="manual-plan"><h3>2. 전체 설계 읽기</h3><p>첫 화면의 <strong>전체 설계</strong> 탭에서 로그라인, 핵심 질문, 세계관 규칙과 12단계 이야기 지도를 확인합니다. 지도에서 원하는 구간을 누르면 해당 회차가 선택됩니다.</p><p><strong>캐릭터</strong> 탭의 <strong>편집</strong> 버튼에서 이름, 역할, 인물 유형, 욕망, 두려움, 비밀, 말투, 현재 상태와 색상을 수정하고 <strong>인물 저장</strong>으로 확정합니다. <strong>인물 추가</strong>도 같은 입력창을 사용하며, 편집창의 <strong>인물 삭제</strong>는 확인 후 카드만 삭제합니다. 취소하면 입력 전 상태를 유지하고, 기존 원고의 이름과 문장은 자동 변경하지 않습니다.</p><p>캐릭터 탭에서는 욕망·두려움·비밀·말투를, <strong>회차</strong> 탭에서는 각 화의 사건과 감정, 마지막 훅을 살펴볼 수 있습니다.</p></section>
               <section id="manual-write"><h3>3. 회차 집필하기</h3><p><strong>집필</strong> 탭으로 이동한 뒤 왼쪽의 회차 번호를 고릅니다. 상단의 ‘이번 화 목표’와 ‘마지막 훅’을 참고해 가운데 원고 칸에 직접 작성하세요. 원고는 저장하기 전에도 화면에서 계속 편집할 수 있습니다.</p><p><strong>목표 글자 수</strong>에 각 회차의 분량을 입력하세요. 회차 목록에서도 한 장씩 설정할 수 있으며, 집필 화면에서 현재 글자 수와 달성률을 확인합니다. 공백 포함 1~20,000자이며 비워 두면 기본 5,000자를 사용합니다. <strong>저장</strong> 또는 <strong>원고 저장</strong>을 누르면 목표도 함께 저장됩니다. AI 집필은 해당 목표를 참고하며, 전체 설계를 다시 만들거나 복원해도 회차별 목표를 유지합니다.</p><p>원고가 마무리되면 <strong>완료 표시</strong>를 누르고 <strong>원고 저장</strong>으로 확정합니다. 저장하면 해당 회차의 글자 수와 상태가 작품에 반영됩니다.</p></section>
               <section id="manual-ai"><h3>4. AI 조력자 활용하기</h3><p>AI가 연결된 상태라면 <strong>AI로 전체 설계</strong>로 작품 구조를 다시 제안받거나, 집필 탭에서 <strong>AI로 이번 화 집필</strong>을 선택할 수 있습니다.</p><p>문단을 드래그한 뒤 수정 요청을 누르면 선택한 부분만 다듬습니다. 선택하지 않으면 회차 전체를 대상으로 합니다. 제안은 비교 창에서 확인하며, <strong>수정안 적용</strong>을 눌렀을 때만 원고에 반영됩니다.</p></section>
               <section id="manual-continuity"><h3>5. 복선과 연속성 관리</h3><p><strong>복선</strong> 탭에서 설치 회차와 회수 회차를 확인하고, 필요한 복선을 추가합니다. <strong>AI 연속성 검사</strong>는 현재 원고와 설정을 비교해 시간선, 인물 설정, 미회수 단서를 점검합니다.</p><p>‘원고에서 확정된 기억’은 이후 집필 때 참조할 사실입니다. 중요한 설정은 직접 다시 확인하고, 작품의 기준과 다르면 원고 또는 설정을 수정하세요.</p></section>
