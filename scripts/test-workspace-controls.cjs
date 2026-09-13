@@ -17,6 +17,7 @@ function loadTS(relative, bindings = {}) {
   const module = { exports: {} };
   new Function('require', 'module', 'exports', compiled)(name => {
     if (Object.hasOwn(bindings, name)) return bindings[name];
+    if (name.startsWith('@/lib/')) return loadTS(name.slice(2) + '.ts', bindings);
     throw new Error('Unexpected test dependency: ' + name);
   }, module, module.exports);
   return module.exports;
@@ -41,7 +42,7 @@ function fixture(t, options = {}) {
   const DB = {
     prepare(sql) {
       return { bind(...args) {
-        return { async run() {
+        return { async all() { return { results: sqlite.prepare(sql).all(...args) }; }, async run() {
           if (options.failProjectDelete && sql.startsWith('DELETE FROM story_projects')) throw new Error('Simulated database failure');
           const result = sqlite.prepare(sql).run(...args);
           return { meta: { changes: Number(result.changes) } };
@@ -71,11 +72,11 @@ function generationRoute(DB, provider) {
     '@/lib/server/openai': { selectOpenAIModel: () => 'gpt-5.6-terra', createOpenAIResponse: provider },
   });
 }
-function generationRequest(project, signal) {
+function generationRequest(project, signal, overrides = {}) {
   return new Request('https://storywell.test/api/ai/generate', {
     method: 'POST', signal,
     headers: { 'Content-Type': 'application/json', 'oai-authenticated-user-id': 'owner-a' },
-    body: JSON.stringify({ action: 'episode', project, episode: { number: 1 } }),
+    body: JSON.stringify({ action: 'episode', project, episode: { number: 1 }, ...overrides }),
   });
 }
 
@@ -184,4 +185,84 @@ test('client skips already cancelled requests and can send a new request afterwa
   assert.equal(result.result, '새 원고');
   assert.equal(selectedModel, 'gpt-6-astra');
   assert.equal(calls, 1);
+});
+
+test('legacy targets default to 5000 and rebuilding a plan preserves goals by episode number', () => {
+  const targets = loadTS('lib/episode-target.ts');
+  const previous = [{ number: 1, targetCharacters: 3200 }, { number: 2, targetCharacters: 7600 }];
+  const result = targets.withEpisodeTargets([{ number: 2, targetCharacters: 99 }, { number: 1 }, { number: 3 }], previous);
+  assert.deepEqual(result.map(item => item.targetCharacters), [7600, 3200, 5000]);
+  assert.equal(targets.getTargetCharacters({ number: 1 }), 5000);
+  const project = { content: { episodes: previous, episodeDrafts: { 1: { body: '보존할 원고' } } } };
+  const changed = targets.setEpisodeTarget(project, 1, 4500);
+  assert.equal(changed.content.episodes[0].targetCharacters, 4500);
+  assert.equal(changed.content.episodes[1].targetCharacters, 7600);
+  assert.equal(project.content.episodes[0].targetCharacters, 3200);
+  assert.equal(changed.content.episodeDrafts, project.content.episodeDrafts);
+});
+
+test('per-episode goals survive create, update and reload with manuscript contents intact', async t => {
+  const f = fixture(t);
+  const bindings = { 'cloudflare:workers': { env: { DB: f.DB } } };
+  const collection = loadTS('app/api/projects/route.ts', bindings);
+  const item = loadTS('app/api/projects/[id]/route.ts', bindings);
+  const content = { episodes: [{ number: 1, targetCharacters: 3200 }, { number: 2, targetCharacters: 7600 }],
+    episodeDrafts: { 1: { body: '공백 포함 원고를 보존합니다.' } } };
+  const createdResponse = await collection.POST(new Request('https://storywell.test/api/projects', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'oai-authenticated-user-id': 'owner-a' },
+    body: JSON.stringify({ ...f.project, content }),
+  }));
+  assert.equal(createdResponse.status, 201);
+  const { project } = await createdResponse.json();
+  project.content.episodes[0].targetCharacters = 4500;
+  const updated = await item.PUT(new Request('https://storywell.test/api/projects/' + project.id, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json', 'oai-authenticated-user-id': 'owner-a' },
+    body: JSON.stringify(project),
+  }), { params: Promise.resolve({ id: project.id }) });
+  assert.equal(updated.status, 200);
+  const response = await collection.GET(new Request('https://storywell.test/api/projects', { headers: { 'oai-authenticated-user-id': 'owner-a' } }));
+  const reloaded = (await response.json()).projects.find(item => item.id === project.id);
+  assert.deepEqual(reloaded.content.episodes.map(episode => episode.targetCharacters), [4500, 7600]);
+  assert.equal(reloaded.content.episodeDrafts[1].body, content.episodeDrafts[1].body);
+});
+
+test('invalid targets are rejected by create and update without changing saved data', async t => {
+  const f = fixture(t);
+  const bindings = { 'cloudflare:workers': { env: { DB: f.DB } } };
+  const collection = loadTS('app/api/projects/route.ts', bindings);
+  const item = loadTS('app/api/projects/[id]/route.ts', bindings);
+  for (const targetCharacters of [0, -1, 1.5, 20001, '4000', null]) {
+    const body = JSON.stringify({ ...f.project, content: { episodes: [{ number: 1, targetCharacters }] } });
+    const options = { headers: { 'Content-Type': 'application/json', 'oai-authenticated-user-id': 'owner-a' }, body };
+    assert.equal((await collection.POST(new Request('https://storywell.test/api/projects', { ...options, method: 'POST' }))).status, 400);
+    assert.equal((await item.PUT(new Request('https://storywell.test/api/projects/project-a', { ...options, method: 'PUT' }), params())).status, 400);
+  }
+  assert.equal(f.count('story_projects'), 2);
+  assert.equal(f.sqlite.prepare('SELECT content FROM story_projects WHERE id = ?').get('project-a').content, '{}');
+});
+
+test('AI drafting receives the selected episode goal and a sufficient larger output allowance', async t => {
+  const f = fixture(t);
+  const sent = [];
+  const route = generationRoute(f.DB, async body => { sent.push(body); return Response.json({ output_text: '테스트 원고' }); });
+  for (const targetCharacters of [3200, 12000]) {
+    const response = await route.POST(generationRequest(f.project, undefined, { episode: { number: 2, targetCharacters } }));
+    assert.equal(response.status, 200);
+  }
+  assert.match(sent[0].input, /공백 포함 목표 3200자/);
+  assert.match(sent[1].input, /공백 포함 목표 12000자/);
+  assert.ok(sent[1].max_output_tokens > sent[0].max_output_tokens);
+  assert.doesNotMatch(sent[0].input, /4,500~5,500/);
+});
+
+test('AI rejects invalid targets before calling the provider and defaults older episodes to 5000', async t => {
+  const f = fixture(t);
+  const sent = [];
+  const route = generationRoute(f.DB, async body => { sent.push(body); return Response.json({ output_text: '테스트 원고' }); });
+  const invalid = await route.POST(generationRequest(f.project, undefined, { episode: { number: 1, targetCharacters: -1 } }));
+  assert.equal(invalid.status, 400);
+  assert.equal((await invalid.json()).code, 'INVALID_TARGET_CHARACTERS');
+  assert.equal(sent.length, 0);
+  assert.equal((await route.POST(generationRequest(f.project))).status, 200);
+  assert.match(sent[0].input, /공백 포함 목표 5000자/);
 });

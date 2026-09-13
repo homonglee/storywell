@@ -1,3 +1,5 @@
+import { DEFAULT_TARGET_CHARACTERS } from "@/lib/episode-target";
+
 export type Character = {
   id: string;
   name: string;
@@ -20,6 +22,7 @@ export type Episode = {
   hook: string;
   status: "planned" | "draft" | "done";
   words: number;
+  targetCharacters?: number;
 };
 
 export type Foreshadow = {
@@ -234,6 +237,7 @@ export function buildStory(input: ProjectInput): StoryContent {
         : "주인공만 알아볼 수 있는 흔적이 예상하지 못한 장소에서 발견된다.",
       status: number === 1 ? "draft" : "planned",
       words: number === 1 ? 1260 : 0,
+      targetCharacters: DEFAULT_TARGET_CHARACTERS,
     };
   });
 

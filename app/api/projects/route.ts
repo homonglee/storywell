@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { getContentTargetError } from "@/lib/episode-target";
 
 function ownerId(request: Request) {
   return request.headers.get("oai-authenticated-user-id") ?? "private-owner";
@@ -46,6 +47,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const payload = (await request.json()) as Record<string, unknown>;
+    const targetError = getContentTargetError(payload.content);
+    if (targetError) return Response.json({ error: targetError }, { status: 400 });
     const title = String(payload.title ?? "").trim();
     const synopsis = String(payload.synopsis ?? "").trim();
     if (!title || !synopsis) {

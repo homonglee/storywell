@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { episodeOutputTokenBudget, getContentTargetError, getEpisodeTargetError, getTargetCharacters } from "@/lib/episode-target";
 import { createOpenAIResponse, selectOpenAIModel } from "@/lib/server/openai";
 
 type Action = "plan" | "episode" | "rewrite" | "analyze";
@@ -201,7 +202,8 @@ function actionPrompt(action: Action, payload: Payload) {
   }
   if (action === "episode") {
     const episode = JSON.stringify(payload.episode ?? {});
-    return guard + "\n한국 웹소설 작가로서 지정 회차의 완성 원고를 작성하라. 분량은 공백 포함 약 4,500~5,500자. 장면으로 보여주고 설명을 남발하지 말며, 인물별 말투를 지키고 마지막은 다음 화를 결제하고 싶게 만드는 강한 훅으로 끝내라. 제목이나 해설 없이 원고 본문만 출력하라. 기존 유명 작가의 문체를 모방하지 말라.\n<story_data>" + serialized + "</story_data>\n<episode>" + episode + "</episode>";
+    const targetCharacters = getTargetCharacters(payload.episode);
+    return guard + "\n한국 웹소설 작가로서 지정 회차의 완성 원고를 작성하라. 분량은 공백 포함 목표 " + targetCharacters + "자에 가깝게 작성하라. 장면으로 보여주고 설명을 남발하지 말며, 인물별 말투를 지키고 마지막은 다음 화를 결제하고 싶게 만드는 강한 훅으로 끝내라. 제목이나 해설 없이 원고 본문만 출력하라. 기존 유명 작가의 문체를 모방하지 말라.\n<story_data>" + serialized + "</story_data>\n<episode>" + episode + "</episode>";
   }
   if (action === "rewrite") {
     const target = payload.rewriteTarget === "selection" ? "선택 문단" : "회차 전체";
@@ -272,6 +274,9 @@ export async function POST(request: Request) {
       return Response.json({ error: "작품 정보가 필요합니다." }, { status: 400 });
     }
 
+    const targetError = getContentTargetError(payload.project.content) ?? getEpisodeTargetError(payload.episode);
+    if (targetError) return Response.json({ error: targetError, code: "INVALID_TARGET_CHARACTERS" }, { status: 400 });
+
     const structured = action === "plan" || action === "analyze";
     const schema = action === "plan" ? planSchema : analysisSchema;
     const body: Record<string, unknown> = {
@@ -279,7 +284,7 @@ export async function POST(request: Request) {
       reasoning: { effort: action === "plan" || action === "analyze" ? "medium" : "low" },
       instructions: "당신은 한국 장르 웹소설을 전문적으로 설계하고 집필하는 창작 파트너다. 결과는 한국어로 작성한다. 사용자가 제공한 작품의 고유성과 설정을 최우선으로 지킨다.",
       input: actionPrompt(action, payload),
-      max_output_tokens: action === "plan" ? 30000 : action === "episode" ? 9000 : 5000,
+      max_output_tokens: action === "plan" ? 30000 : action === "episode" ? episodeOutputTokenBudget(payload.episode) : 5000,
       store: false,
     };
     if (structured) {

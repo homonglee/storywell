@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { getContentTargetError } from "@/lib/episode-target";
 
 function ownerId(request: Request) {
   return request.headers.get("oai-authenticated-user-id") ?? "private-owner";
@@ -17,6 +18,8 @@ export async function PUT(
   try {
     const { id } = await context.params;
     const payload = (await request.json()) as Record<string, unknown>;
+    const targetError = getContentTargetError(payload.content);
+    if (targetError) return Response.json({ error: targetError }, { status: 400 });
     const now = new Date().toISOString();
     const result = await database().prepare(
       "UPDATE story_projects SET title = ?, synopsis = ?, genre = ?, tone = ?, target_episodes = ?, status = ?, content = ?, updated_at = ? WHERE id = ? AND owner_id = ?"

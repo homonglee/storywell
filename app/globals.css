@@ -492,3 +492,32 @@ button { cursor: pointer; }
   .task-status, .workspace-control-buttons { width: 100%; }
   .workspace-control-buttons button { flex: 1; }
 }
+
+/* Per-episode writing targets. */
+.episode-item { display: grid; grid-template-columns: minmax(0, 1fr) 160px; border-bottom: 1px solid var(--line); background: #171e2a; }
+.episode-item:last-child { border-bottom: 0; }
+.episode-item .episode-row { grid-template-columns: 4px 36px minmax(0, 1fr) 100px 75px 18px; gap: 10px; border-bottom: 0; }
+.episode-item > .episode-target-field { align-self: center; margin: 12px; }
+.episode-target-field { display: grid; gap: 7px; min-width: 0; color: #c9cdd5; font-size: 14px; }
+.episode-target-entry { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.episode-target-entry input { min-width: 0; width: 100%; max-width: 160px; height: 44px; border-color: #3b4658; background: #101722; font-size: 16px; }
+.episode-target-field small { color: #929baa; font-size: 12px; line-height: 1.5; }
+.episode-target-field .episode-target-error { color: #ffb1ae; }
+.episode-length-control { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 20px; margin: 0 0 18px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #111722; }
+.episode-length-status { display: grid; gap: 10px; min-width: 0; color: #aeb6c4; font-size: 14px; }
+.episode-length-status > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 7px; }
+.episode-length-status strong { color: #f3c778; }
+.episode-length-status small { font-size: 12px; color: #929baa; }
+.episode-length-progress { height: 6px; background: #293243; }
+.episode-length-progress > div { background: var(--gold); }
+@media (max-width: 1100px) {
+  .episode-item .episode-row { grid-template-columns: 4px 36px minmax(0, 1fr) 18px; }
+  .episode-item .episode-row > [data-slot="badge"], .episode-item .episode-emotion { display: none; }
+  .episode-length-control { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+}
+@media (max-width: 520px) {
+  .episode-item { grid-template-columns: minmax(0, 1fr); }
+  .episode-item > .episode-target-field { grid-template-columns: minmax(0, 1fr) 126px; align-items: center; margin: 4px 14px 14px; }
+  .episode-item .episode-target-error { grid-column: 1 / -1; }
+  .episode-length-control { padding: 12px; }
+}

@@ -16,6 +16,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { buildStory, createSampleProject, type EpisodeDraft, type ProjectInput, type StoryIdea, type StoryProject } from "@/lib/story-engine";
 
 import { isAIAbort, requestAI } from "@/lib/ai-request";
+import { EpisodeTargetInput } from "@/components/episode-target-input";
+import { getContentTargetError, getTargetCharacters, setEpisodeTarget, withEpisodeTargets } from "@/lib/episode-target";
 
 const genres = ["현대 판타지", "로맨스 판타지", "미스터리", "무협", "SF", "로맨스", "드라마"];
 const tones = ["빠르고 통쾌한", "서늘하지만 따뜻한", "유쾌하고 경쾌한", "묵직하고 서정적인", "긴장감 있고 어두운"];
@@ -45,6 +47,7 @@ function statusTone(status: string) {
 }
 
 function normalizeProject(project: StoryProject): StoryProject {
+  project = { ...project, content: { ...project.content, episodes: withEpisodeTargets(project.content.episodes, project.content.episodes) } };
   if (project.content.episodeDrafts) return project;
   const first = project.content.episodes[0];
   const body = project.content.manuscript ?? "";
@@ -94,7 +97,7 @@ function mergeAIPlan(base: StoryProject["content"], result: Partial<StoryProject
     ...base,
     ...result,
     characters: result.characters.map((character, index) => ({ ...character, id: "ai-character-" + index, color: palette[index % palette.length] })),
-    episodes: result.episodes.map((episode) => ({ ...episode, status: episode.number === 1 ? "draft" as const : "planned" as const, words: 0 })),
+    episodes: withEpisodeTargets(result.episodes, base.episodes).map((episode) => ({ ...episode, status: episode.number === 1 ? "draft" as const : "planned" as const, words: 0 })),
     foreshadows: (result.foreshadows ?? []).map((item, index) => ({ ...item, id: "ai-foreshadow-" + index })),
     ideas: result.ideas ?? [],
   };
@@ -187,6 +190,8 @@ export default function StoryStudio() {
   }, []);
 
   const persistProject = useCallback(async (project: StoryProject) => {
+    const targetError = getContentTargetError(project.content);
+    if (targetError) throw new Error(targetError);
     const isNew = project.id === "sample" || project.id.startsWith("draft-");
     const response = await fetch(isNew ? "/api/projects" : "/api/projects/" + project.id, {
       method: isNew ? "POST" : "PUT",
@@ -273,6 +278,7 @@ export default function StoryStudio() {
       },
     };
   });
+  const editEpisodeTarget = (number: number, value: number | undefined) => setCurrent(project => setEpisodeTarget(project, number, value));
   const saveCurrent = async () => {
     setSaving(true);
     try {
@@ -303,6 +309,8 @@ export default function StoryStudio() {
   };
 
   const callAI = async (action: AIAction, extra: Record<string, unknown> = {}) => {
+    const targetError = getContentTargetError(current.content);
+    if (targetError) throw new Error(targetError);
     if (!aiConfigured) throw new Error("AI 연결이 필요합니다. OpenAI Developers 연결을 완료해 주세요.");
     if (aiControllerRef.current) throw new Error("진행 중인 AI 작업을 먼저 취소해 주세요.");
     const controller = new AbortController();
@@ -538,6 +546,8 @@ export default function StoryStudio() {
   const filteredProjects = projects.filter((project) => project.title.toLowerCase().includes(query.toLowerCase()));
   const active = current.content.episodes.find((item) => item.number === activeEpisode) ?? current.content.episodes[0];
   const activeManuscript = episodeBody(current, active?.number ?? 1);
+  const activeTarget = getTargetCharacters(active);
+  const targetCompletion = Math.round(activeManuscript.length / activeTarget * 100);
   const episodeSlice = current.content.episodes.slice(episodePage * 12, episodePage * 12 + 12);
   const totalEpisodePages = Math.ceil(current.content.episodes.length / 12);
   const drafted = current.content.episodes.filter((item) => item.status !== "planned").length;
@@ -693,7 +703,7 @@ export default function StoryStudio() {
               <div className="section-title"><div><span>EPISODE BLUEPRINT</span><h2>전체 회차 스크립트</h2></div><div className="page-control"><Button variant="outline" size="sm" disabled={episodePage === 0} onClick={() => setEpisodePage((page) => page - 1)}>이전</Button><span>{episodePage + 1} / {totalEpisodePages}</span><Button variant="outline" size="sm" disabled={episodePage >= totalEpisodePages - 1} onClick={() => setEpisodePage((page) => page + 1)}>다음</Button></div></div>
               <div className="episode-list">
                 {episodeSlice.map((episode) => (
-                  <button key={episode.number} className={"episode-row " + (activeEpisode === episode.number ? "active" : "")} onClick={() => setActiveEpisode(episode.number)}><span className={"status-line " + statusTone(episode.status)} /><strong>{String(episode.number).padStart(3, "0")}</strong><div><h3>{episode.title}</h3><p>{episode.beat}</p></div><Badge variant="outline">{episode.stage}</Badge><span className="episode-emotion">{episode.emotion}</span><ChevronRight /></button>
+                  <div key={episode.number} className="episode-item"><button className={"episode-row " + (activeEpisode === episode.number ? "active" : "")} onClick={() => setActiveEpisode(episode.number)}><span className={"status-line " + statusTone(episode.status)} /><strong>{String(episode.number).padStart(3, "0")}</strong><div><h3>{episode.title}</h3><p>{episode.beat}</p></div><Badge variant="outline">{episode.stage}</Badge><span className="episode-emotion">{episode.emotion}</span><ChevronRight /></button><EpisodeTargetInput episode={episode} disabled={busy} compact onChange={value => editEpisodeTarget(episode.number, value)} /></div>
                 ))}
               </div>
             </TabsContent>
@@ -703,6 +713,14 @@ export default function StoryStudio() {
               <section className="manuscript">
                 <div className="manuscript-head"><div><span>EPISODE {String(active.number).padStart(3, "0")}</span><h2>{active.title}</h2></div><Badge className="draft-badge">{active.status === "done" ? "완성" : activeManuscript ? "초안" : "미집필"}</Badge></div>
                 <div className="episode-brief"><div><Target /><span><small>이번 화 목표</small>{active.beat}</span></div><div><Sparkles /><span><small>마지막 훅</small>{active.hook}</span></div></div>
+                <div className="episode-length-control">
+                  <EpisodeTargetInput episode={active} disabled={busy} onChange={value => editEpisodeTarget(active.number, value)} />
+                  <div className="episode-length-status">
+                    <div><span>{activeManuscript.length.toLocaleString()} / {activeTarget.toLocaleString()}자</span><strong>{targetCompletion}%</strong></div>
+                    <Progress value={Math.min(100, targetCompletion)} className="episode-length-progress" aria-label={active.number + "화 목표 글자 수 달성률"} />
+                    <small>{activeManuscript.length >= activeTarget ? "목표 분량을 채웠습니다." : (activeTarget - activeManuscript.length).toLocaleString() + "자 더 쓰면 목표 달성"} · AI 집필도 이 목표를 참고합니다.</small>
+                  </div>
+                </div>
                 <Textarea ref={manuscriptRef} className="manuscript-editor" readOnly={busy} value={activeManuscript} onChange={(event) => editActiveManuscript(event.target.value)} placeholder={active.number + "화 원고를 직접 쓰거나 AI로 집필하세요."} aria-label={active.number + "화 원고"} />
                 <div className="manuscript-footer"><span>{activeManuscript.length.toLocaleString()}자</span><span>{activeManuscript.trim() ? activeManuscript.trim().split(/\s+/).length.toLocaleString() : 0}어절</span><span>리비전 {current.content.episodeDrafts?.[String(active.number)]?.revision ?? 0}</span><Button variant="outline" onClick={markEpisodeDone} disabled={busy || !activeManuscript.trim()}><CheckCircle2 />완료 표시</Button><Button onClick={saveCurrent} disabled={busy}><Save />원고 저장</Button></div>
               </section>
@@ -805,7 +823,7 @@ export default function StoryStudio() {
             <div className="manual-content">
               <section id="manual-start"><h3>1. 시작하기</h3><p><strong>새 작품 설계</strong>를 눌러 제목, 시놉시스, 장르, 톤과 목표 회차를 입력합니다. 짧은 시놉시스에는 주인공, 원하는 것, 가장 큰 장애물을 담으면 더 선명한 설계가 만들어집니다.</p></section>
               <section id="manual-plan"><h3>2. 전체 설계 읽기</h3><p>첫 화면의 <strong>전체 설계</strong> 탭에서 로그라인, 핵심 질문, 세계관 규칙과 12단계 이야기 지도를 확인합니다. 지도에서 원하는 구간을 누르면 해당 회차가 선택됩니다.</p><p><strong>캐릭터</strong> 탭에서는 욕망·두려움·비밀·말투를, <strong>회차</strong> 탭에서는 각 화의 사건과 감정, 마지막 훅을 살펴볼 수 있습니다.</p></section>
-              <section id="manual-write"><h3>3. 회차 집필하기</h3><p><strong>집필</strong> 탭으로 이동한 뒤 왼쪽의 회차 번호를 고릅니다. 상단의 ‘이번 화 목표’와 ‘마지막 훅’을 참고해 가운데 원고 칸에 직접 작성하세요. 원고는 저장하기 전에도 화면에서 계속 편집할 수 있습니다.</p><p>원고가 마무리되면 <strong>완료 표시</strong>를 누르고 <strong>원고 저장</strong>으로 확정합니다. 저장하면 해당 회차의 글자 수와 상태가 작품에 반영됩니다.</p></section>
+              <section id="manual-write"><h3>3. 회차 집필하기</h3><p><strong>집필</strong> 탭으로 이동한 뒤 왼쪽의 회차 번호를 고릅니다. 상단의 ‘이번 화 목표’와 ‘마지막 훅’을 참고해 가운데 원고 칸에 직접 작성하세요. 원고는 저장하기 전에도 화면에서 계속 편집할 수 있습니다.</p><p><strong>목표 글자 수</strong>에 각 회차의 분량을 입력하세요. 회차 목록에서도 한 장씩 설정할 수 있으며, 집필 화면에서 현재 글자 수와 달성률을 확인합니다. 공백 포함 1~20,000자이며 비워 두면 기본 5,000자를 사용합니다. <strong>저장</strong> 또는 <strong>원고 저장</strong>을 누르면 목표도 함께 저장됩니다. AI 집필은 해당 목표를 참고하며, 전체 설계를 다시 만들거나 복원해도 회차별 목표를 유지합니다.</p><p>원고가 마무리되면 <strong>완료 표시</strong>를 누르고 <strong>원고 저장</strong>으로 확정합니다. 저장하면 해당 회차의 글자 수와 상태가 작품에 반영됩니다.</p></section>
               <section id="manual-ai"><h3>4. AI 조력자 활용하기</h3><p>AI가 연결된 상태라면 <strong>AI로 전체 설계</strong>로 작품 구조를 다시 제안받거나, 집필 탭에서 <strong>AI로 이번 화 집필</strong>을 선택할 수 있습니다.</p><p>문단을 드래그한 뒤 수정 요청을 누르면 선택한 부분만 다듬습니다. 선택하지 않으면 회차 전체를 대상으로 합니다. 제안은 비교 창에서 확인하며, <strong>수정안 적용</strong>을 눌렀을 때만 원고에 반영됩니다.</p></section>
               <section id="manual-continuity"><h3>5. 복선과 연속성 관리</h3><p><strong>복선</strong> 탭에서 설치 회차와 회수 회차를 확인하고, 필요한 복선을 추가합니다. <strong>AI 연속성 검사</strong>는 현재 원고와 설정을 비교해 시간선, 인물 설정, 미회수 단서를 점검합니다.</p><p>‘원고에서 확정된 기억’은 이후 집필 때 참조할 사실입니다. 중요한 설정은 직접 다시 확인하고, 작품의 기준과 다르면 원고 또는 설정을 수정하세요.</p></section>
               <section id="manual-save"><h3>6. 저장과 내보내기</h3><p>작업 중에는 상단 <strong>저장</strong> 버튼으로 작품 설정과 원고를 보관합니다. 상단 <strong>내보내기</strong>에서는 현재 회차 또는 전체 원고를 TXT로, 작품 설계를 포함한 원고를 Markdown으로, 전체 백업을 JSON으로 받을 수 있습니다.</p><p>외부에 공유하거나 큰 수정 전에는 JSON 백업을 한 번 내려받아 두는 것을 권합니다.</p></section>
