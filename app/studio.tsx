@@ -31,7 +31,8 @@ const initialForm: ProjectInput = { title: "", synopsis: "", genre: "현대 판�
 type AIAction = "plan" | "episode" | "rewrite" | "analyze" | "ideas";
 const aiActionLabels: Record<AIAction, string> = { plan: "전체 설계", episode: "회차 집필", rewrite: "원고 다듬기", analyze: "연속성 검사", ideas: "소재 제안" };
 type GenerationVersion = { id: string; action: "plan" | "episode" | "rewrite" | "analyze" | "ideas"; model: string; inputSummary: string; output: string; createdAt: string };
-type RewriteProposal = { original: string; revised: string; start: number; end: number; wholeEpisode: boolean; instruction: string };
+type RewriteProposal = { original: string; revised: string; body: string; start: number; end: number; wholeEpisode: boolean; instruction: string; projectId: string; episodeNumber: number };
+type PendingRewrite = { instruction: string; original: string; body: string; start: number; end: number; wholeEpisode: boolean; beforeContext: string; afterContext: string; projectId: string; episodeNumber: number };
 type ModelOption = { id: string; label: string; note: string };
 const defaultModelOptions: ModelOption[] = [
   { id: "gpt-5.6-terra", label: "GPT-5.6 Terra", note: "균형 잡힌 창작" },
@@ -125,6 +126,7 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
   const [versions, setVersions] = useState<GenerationVersion[]>([]);
   const [versionTick, setVersionTick] = useState(0);
   const [rewriteInstruction, setRewriteInstruction] = useState("");
+  const [pendingRewrite, setPendingRewrite] = useState<PendingRewrite | null>(null);
   const [rewriteProposal, setRewriteProposal] = useState<RewriteProposal | null>(null);
   const manuscriptRef = useRef<HTMLTextAreaElement | null>(null);
   const [characterEditor, setCharacterEditor] = useState<{ projectId: string; original: Character | null; draft: Character } | null>(null);
@@ -341,6 +343,7 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
     setAiTask(action); setAiError(""); setAiProgress("AI 연결을 시작합니다."); setAiPreview("");
     try {
       const data = await requestAI({ action, project: current, model: aiModel, ...extra }, controller.signal, event => {
+        if (controller.signal.aborted || aiControllerRef.current !== controller) return;
         if (event.message) setAiProgress(event.message);
         if (event.type === "preview" && event.text) setAiPreview(event.text);
         if (event.type === "delta" && event.text) setAiPreview(text => (text + event.text).slice(-1200));
@@ -453,32 +456,56 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
     }
   };
 
-  const rewriteManuscript = async (instruction: string, forceWhole = false) => {
+  const requestRewrite = (instruction: string, forceWhole = false) => {
+    if (busy) return;
+    const body = episodeBody(current, active.number);
+    if (!body.trim()) { toast.error("먼저 원고를 입력하거나 AI로 이번 화를 집필해 주세요."); return; }
+    const textarea = manuscriptRef.current;
+    const start = textarea?.selectionStart ?? 0;
+    const end = textarea?.selectionEnd ?? 0;
+    const hasSelection = !forceWhole && end > start;
+    setPendingRewrite({
+      instruction: instruction.trim(), original: hasSelection ? body.slice(start, end) : body, body,
+      start: hasSelection ? start : 0, end: hasSelection ? end : body.length, wholeEpisode: !hasSelection,
+      beforeContext: hasSelection ? body.slice(Math.max(0, start - 1200), start) : "",
+      afterContext: hasSelection ? body.slice(end, end + 1200) : "",
+      projectId: current.id, episodeNumber: active.number,
+    });
+  };
+
+  const rewriteManuscript = async (request: PendingRewrite) => {
     try {
-      const body = episodeBody(current, active.number);
-      if (!body.trim()) throw new Error("먼저 원고를 입력하거나 AI로 이번 화를 집필해 주세요.");
-      const textarea = manuscriptRef.current;
-      const start = textarea?.selectionStart ?? 0;
-      const end = textarea?.selectionEnd ?? 0;
-      const hasSelection = !forceWhole && end > start;
-      const selectedText = hasSelection ? body.slice(start, end) : body;
+      if (current.id !== request.projectId || active.number !== request.episodeNumber || episodeBody(current, active.number) !== request.body) {
+        throw new Error("원고가 변경되었습니다. 수정 범위를 다시 선택해 주세요.");
+      }
       const text = (await callAI("rewrite", {
-        instruction,
+        instruction: request.instruction,
         episode: active,
-        selectedText,
-        rewriteTarget: hasSelection ? "selection" : "episode",
-        beforeContext: hasSelection ? body.slice(Math.max(0, start - 1200), start) : "",
-        afterContext: hasSelection ? body.slice(end, end + 1200) : "",
+        selectedText: request.original,
+        rewriteTarget: request.wholeEpisode ? "episode" : "selection",
+        beforeContext: request.beforeContext,
+        afterContext: request.afterContext,
       })) as string;
       if (!text?.trim()) throw new Error("수정된 원고가 비어 있습니다.");
-      setRewriteProposal({ original: selectedText, revised: text, start: hasSelection ? start : 0, end: hasSelection ? end : body.length, wholeEpisode: !hasSelection, instruction });
+      setRewriteProposal({ original: request.original, revised: text, body: request.body, start: request.start, end: request.end, wholeEpisode: request.wholeEpisode, instruction: request.instruction, projectId: request.projectId, episodeNumber: request.episodeNumber });
     } catch (error) {
       if (!isAIAbort(error)) toast.error(error instanceof Error ? error.message : "원고 재작성에 실패했습니다.");
     }
   };
 
+  const confirmRewrite = () => {
+    if (!pendingRewrite || busy) return;
+    const request = pendingRewrite;
+    setPendingRewrite(null);
+    void rewriteManuscript(request);
+  };
+
   const applyRewrite = async () => {
     if (!rewriteProposal) return;
+    if (current.id !== rewriteProposal.projectId || active.number !== rewriteProposal.episodeNumber || episodeBody(current, active.number) !== rewriteProposal.body) {
+      toast.error("원고나 회차가 변경되었습니다. 수정안을 닫고 다시 요청해 주세요.");
+      return;
+    }
     const body = episodeBody(current, active.number);
     const nextBody = body.slice(0, rewriteProposal.start) + rewriteProposal.revised + body.slice(rewriteProposal.end);
     await persistUpdated(updateEpisodeDraft(current, active.number, nextBody), rewriteProposal.wholeEpisode ? "다듬은 원고를 적용하고 저장했습니다." : "선택 문단 수정안을 적용하고 저장했습니다.");
@@ -714,7 +741,7 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
               <div className="arc-map">
                 {Array.from({ length: 12 }, (_, index) => {
                   const episode = current.content.episodes[Math.floor(index * (current.content.episodes.length - 1) / 11)];
-                  return <button key={index} className="arc-node" onClick={() => { setActiveEpisode(episode.number); setEpisodePage(Math.floor((episode.number - 1) / 12)); }}><span>{String(index + 1).padStart(2, "0")}</span><strong>{episode.stage}</strong><small>{episode.number}화 부근</small></button>;
+                  return <button key={index} className="arc-node" disabled={aiTask === "rewrite"} onClick={() => { setActiveEpisode(episode.number); setEpisodePage(Math.floor((episode.number - 1) / 12)); }}><span>{String(index + 1).padStart(2, "0")}</span><strong>{episode.stage}</strong><small>{episode.number}화 부근</small></button>;
                 })}
               </div>
               <div className="overview-bottom">
@@ -741,13 +768,13 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
               <div className="section-title"><div><span>EPISODE BLUEPRINT</span><h2>전체 회차 스크립트</h2></div><div className="page-control"><Button variant="outline" size="sm" disabled={episodePage === 0} onClick={() => setEpisodePage((page) => page - 1)}>이전</Button><span>{episodePage + 1} / {totalEpisodePages}</span><Button variant="outline" size="sm" disabled={episodePage >= totalEpisodePages - 1} onClick={() => setEpisodePage((page) => page + 1)}>다음</Button></div></div>
               <div className="episode-list">
                 {episodeSlice.map((episode) => (
-                  <div key={episode.number} className="episode-item"><button className={"episode-row " + (activeEpisode === episode.number ? "active" : "")} onClick={() => setActiveEpisode(episode.number)}><span className={"status-line " + statusTone(episode.status)} /><strong>{String(episode.number).padStart(3, "0")}</strong><div><h3>{episode.title}</h3><p>{episode.beat}</p></div><Badge variant="outline">{episode.stage}</Badge><span className="episode-emotion">{episode.emotion}</span><ChevronRight /></button><EpisodeTargetInput episode={episode} disabled={busy} compact onChange={value => editEpisodeTarget(episode.number, value)} /></div>
+                  <div key={episode.number} className="episode-item"><button className={"episode-row " + (activeEpisode === episode.number ? "active" : "")} disabled={aiTask === "rewrite"} onClick={() => setActiveEpisode(episode.number)}><span className={"status-line " + statusTone(episode.status)} /><strong>{String(episode.number).padStart(3, "0")}</strong><div><h3>{episode.title}</h3><p>{episode.beat}</p></div><Badge variant="outline">{episode.stage}</Badge><span className="episode-emotion">{episode.emotion}</span><ChevronRight /></button><EpisodeTargetInput episode={episode} disabled={busy} compact onChange={value => editEpisodeTarget(episode.number, value)} /></div>
                 ))}
               </div>
             </TabsContent>
 
             <TabsContent value="writing" className="tab-panel writing-panel">
-              <aside className="episode-rail"><span>회차</span>{current.content.episodes.map((episode) => <button key={episode.number} title={episode.title} className={activeEpisode === episode.number ? "active" : ""} onClick={() => setActiveEpisode(episode.number)}>{episode.number}<i className={statusTone(episode.status)} /></button>)}</aside>
+              <aside className="episode-rail"><span>회차</span>{current.content.episodes.map((episode) => <button key={episode.number} title={episode.title} disabled={aiTask === "rewrite"} className={activeEpisode === episode.number ? "active" : ""} onClick={() => setActiveEpisode(episode.number)}>{episode.number}<i className={statusTone(episode.status)} /></button>)}</aside>
               <section className="manuscript">
                 <div className="manuscript-head"><div><span>EPISODE {String(active.number).padStart(3, "0")}</span><h2>{active.title}</h2></div><Badge className="draft-badge">{active.status === "done" ? "완성" : activeManuscript ? "초안" : "미집필"}</Badge></div>
                 <div className="episode-brief"><div><Target /><span><small>이번 화 목표</small>{active.beat}</span></div><div><Sparkles /><span><small>마지막 훅</small>{active.hook}</span></div></div>
@@ -766,10 +793,11 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
                 <div className="assistant-title"><BrainCircuit /><div><strong>집필 조력자</strong><span>기억 {current.content.memories?.length ?? 0}개 · 현재 회차 맥락 연결</span></div></div>
                 <div className="assistant-check"><h3>이번 화 설계</h3><p>{active.beat || "전체 설계를 완료하면 이번 화의 사건이 표시됩니다."}</p><p>{active.emotion ? "감정: " + active.emotion : ""}</p><p>{active.hook ? "마지막 훅: " + active.hook : ""}</p></div>
                 <Button className="assistant-generate episode-generate" onClick={generateEpisode} disabled={busy}>{aiTask === "episode" ? <LoaderCircle className="animate-spin" /> : <Feather />}{aiTask === "episode" ? "원고를 집필하는 중…" : "AI로 이번 화 집필"}</Button>
-                <p className="selection-hint">문장을 선택하면 그 부분만, 선택하지 않으면 회차 전체를 수정합니다. 결과는 적용 전에 비교할 수 있습니다.</p>
-                <div className="assistant-actions"><button onClick={() => rewriteManuscript("대사를 더 짧고 날카롭게 다듬어라.")} disabled={busy}>대사를 더 날카롭게</button><button onClick={() => rewriteManuscript("감정을 직접 설명하지 말고 행동과 감각으로 더 섬세하게 보여줘라.")} disabled={busy}>감정선을 더 섬세하게</button><button onClick={() => rewriteManuscript("사건 진행 속도를 높이고 불필요한 설명을 덜어내라.")} disabled={busy}>전개 속도 높이기</button><button onClick={() => rewriteManuscript("마지막 장면의 긴장과 클리프행어를 강화하라.")} disabled={busy}>마지막 훅 강화</button></div>
-                <div className="custom-rewrite"><Textarea value={rewriteInstruction} onChange={(event) => setRewriteInstruction(event.target.value)} placeholder="예: 주인공의 불안을 직접 설명하지 말고 손동작으로 보여줘" /><Button variant="outline" onClick={() => rewriteManuscript(rewriteInstruction)} disabled={busy || !rewriteInstruction.trim()}>{aiTask === "rewrite" ? <LoaderCircle className="animate-spin" /> : <Sparkles />}맞춤 수정안</Button></div>
-                <Button className="assistant-generate" variant="outline" onClick={() => rewriteManuscript("문장 반복을 줄이고 장면 전환과 호흡을 매끄럽게 다듬어라.", true)} disabled={busy}>{aiTask === "rewrite" ? <LoaderCircle className="animate-spin" /> : <Sparkles />}{aiTask === "rewrite" ? "원고를 다듬는 중…" : "원고 전체 다듬기"}</Button>
+                <p className="selection-hint">문장을 선택하면 그 부분만, 선택하지 않으면 회차 전체를 수정합니다. 시작 전에 범위를 확인하고, 결과는 적용 전에 비교할 수 있습니다.</p>
+                {aiTask === "rewrite" ? <div className="rewrite-task-control"><span role="status"><LoaderCircle className="animate-spin" />{aiProgress || "수정안을 작성하는 중…"} · {aiElapsed}초</span><Button type="button" variant="outline" onClick={() => cancelAI()}><Square />작업 중단</Button></div> : null}
+                <div className="assistant-actions"><button onClick={() => requestRewrite("대사를 더 짧고 날카롭게 다듬어라.")} disabled={busy}>대사를 더 날카롭게</button><button onClick={() => requestRewrite("감정을 직접 설명하지 말고 행동과 감각으로 더 섬세하게 보여줘라.")} disabled={busy}>감정선을 더 섬세하게</button><button onClick={() => requestRewrite("사건 진행 속도를 높이고 불필요한 설명을 덜어내라.")} disabled={busy}>전개 속도 높이기</button><button onClick={() => requestRewrite("마지막 장면의 긴장과 클리프행어를 강화하라.")} disabled={busy}>마지막 훅 강화</button></div>
+                <div className="custom-rewrite"><Textarea value={rewriteInstruction} onChange={(event) => setRewriteInstruction(event.target.value)} placeholder="예: 주인공의 불안을 직접 설명하지 말고 손동작으로 보여줘" /><Button variant="outline" onClick={() => requestRewrite(rewriteInstruction)} disabled={busy || !rewriteInstruction.trim()}><Sparkles />맞춤 수정안</Button></div>
+                <Button className="assistant-generate" variant="outline" onClick={() => requestRewrite("문장 반복을 줄이고 장면 전환과 호흡을 매끄럽게 다듬어라.", true)} disabled={busy}><Sparkles />원고 전체 다듬기</Button>
               </aside>
             </TabsContent>
 
@@ -884,7 +912,7 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
               <section id="manual-start"><h3>1. 시작하기</h3><p><strong>새 작품 설계</strong>를 눌러 제목, 시놉시스, 장르, 톤, 목표 회차와 <strong>회차당 목표 글자 수</strong>를 입력합니다. 입력한 글자 수는 모든 회차의 초기 목표가 되며, 이후 회차별로 바꿀 수 있습니다. 생성 버튼을 누르면 실제 AI 설계가 시작됩니다. 인물·세계관을 먼저 만든 뒤 최대 20회차씩 나누어 구성하므로 몇 분 걸릴 수 있습니다. 상단에서 진행 상황을 확인하거나 취소할 수 있습니다. 실패하거나 취소해도 제목과 시놉시스는 보관함에 남아 다시 설계할 수 있습니다. 짧은 시놉시스에는 주인공, 원하는 것, 가장 큰 장애물을 담으면 더 선명한 설계가 만들어집니다.</p></section>
               <section id="manual-plan"><h3>2. 전체 설계 읽기</h3><p>첫 화면의 <strong>전체 설계</strong> 탭에서 로그라인, 핵심 질문, 세계관 규칙과 12단계 이야기 지도를 확인합니다. 지도에서 원하는 구간을 누르면 해당 회차가 선택됩니다.</p><p><strong>캐릭터</strong> 탭의 <strong>편집</strong> 버튼에서 이름, 역할, 인물 유형, 욕망, 두려움, 비밀, 말투, 현재 상태와 색상을 수정하고 <strong>인물 저장</strong>으로 확정합니다. <strong>인물 추가</strong>도 같은 입력창을 사용하며, 편집창의 <strong>인물 삭제</strong>는 확인 후 카드만 삭제합니다. 취소하면 입력 전 상태를 유지하고, 기존 원고의 이름과 문장은 자동 변경하지 않습니다.</p><p>캐릭터 탭에서는 욕망·두려움·비밀·말투를, <strong>회차</strong> 탭에서는 각 화의 사건과 감정, 마지막 훅을 살펴볼 수 있습니다.</p></section>
               <section id="manual-write"><h3>3. 회차 집필하기</h3><p><strong>집필</strong> 탭으로 이동한 뒤 왼쪽의 회차 번호를 고릅니다. 상단의 ‘이번 화 목표’와 ‘마지막 훅’을 참고해 가운데 원고 칸에 직접 작성하세요. 원고는 저장하기 전에도 화면에서 계속 편집할 수 있습니다.</p><p><strong>목표 글자 수</strong>에 각 회차의 분량을 입력하세요. 회차 목록에서도 한 장씩 설정할 수 있으며, 집필 화면에서 현재 글자 수와 달성률을 확인합니다. 공백 포함 1~20,000자이며 비워 두면 기본 5,000자를 사용합니다. <strong>저장</strong> 또는 <strong>원고 저장</strong>을 누르면 목표도 함께 저장됩니다. AI 집필은 해당 목표를 참고하며, 전체 설계를 다시 만들거나 복원해도 회차별 목표를 유지합니다.</p><p>원고가 마무리되면 <strong>완료 표시</strong>를 누르고 <strong>원고 저장</strong>으로 확정합니다. 저장하면 해당 회차의 글자 수와 상태가 작품에 반영됩니다.</p></section>
-              <section id="manual-ai"><h3>4. AI 조력자 활용하기</h3><p>AI가 연결된 상태라면 <strong>AI로 전체 설계</strong>로 작품 구조를 다시 제안받거나, 집필 탭에서 <strong>AI로 이번 화 집필</strong>을 선택할 수 있습니다.</p><p>문단을 드래그한 뒤 수정 요청을 누르면 선택한 부분만 다듬습니다. 선택하지 않으면 회차 전체를 대상으로 합니다. 집필과 수정 중에는 생성 중인 문장이 화면에 나타납니다. 끝까지 완료된 결과만 저장됩니다. 제안은 비교 창에서 확인하며, <strong>수정안 적용</strong>을 눌렀을 때만 원고에 반영됩니다.</p></section>
+              <section id="manual-ai"><h3>4. AI 조력자 활용하기</h3><p>AI가 연결된 상태라면 <strong>AI로 전체 설계</strong>로 작품 구조를 다시 제안받거나, 집필 탭에서 <strong>AI로 이번 화 집필</strong>을 선택할 수 있습니다.</p><p>문단을 드래그한 뒤 수정 요청을 누르면 선택한 부분만 다듬습니다. 선택하지 않으면 회차 전체를 대상으로 합니다. 확인창에서 수정 범위와 요청을 확인한 뒤 시작하세요. 집필과 수정 중에는 생성 중인 문장이 화면에 나타납니다. 진행 중인 수정은 집필 조력자의 <strong>작업 중단</strong>으로 멈출 수 있습니다. 끝까지 완료된 결과만 저장됩니다. 제안은 비교 창에서 확인하며, <strong>수정안 적용</strong>을 눌렀을 때만 원고에 반영됩니다.</p></section>
               <section id="manual-continuity"><h3>5. 복선과 연속성 관리</h3><p><strong>복선</strong> 탭에서 설치 회차와 회수 회차를 확인하고, 필요한 복선을 추가합니다. 복선 등록 또는 카드의 편집 버튼에서 이름·설치 회차·회수 회차·상태·메모를 입력하고 저장합니다. <strong>AI 연속성 검사</strong>는 현재 원고와 설정을 비교해 시간선, 인물 설정, 미회수 단서를 점검합니다.</p><p>‘원고에서 확정된 기억’은 이후 집필 때 참조할 사실입니다. 중요한 설정은 직접 다시 확인하고, 작품의 기준과 다르면 원고 또는 설정을 수정하세요.</p></section>
               <section id="manual-save"><h3>6. 저장과 내보내기</h3><p>작업 중에는 상단 <strong>저장</strong> 버튼으로 작품 설정과 원고를 보관합니다. 상단 <strong>내보내기</strong>에서는 현재 회차 또는 전체 원고를 TXT로, 작품 설계를 포함한 원고를 Markdown으로, 전체 백업을 JSON으로 받을 수 있습니다.</p><p>외부에 공유하거나 큰 수정 전에는 JSON 백업을 한 번 내려받아 두는 것을 권합니다.</p></section>
               <section id="manual-controls"><h3>7. 삭제·취소·다시 불러오기</h3><p>삭제할 작품을 보관함에서 선택하고 <strong>작품 삭제</strong>를 누르세요. 확인창에서 삭제하면 해당 작품의 설정, 원고와 AI 기록이 함께 삭제됩니다. 샘플 작품은 삭제 대상이 아닙니다.</p><p>AI 작업 중에는 화면 위쪽의 <strong>작업 취소</strong>로 요청을 중단할 수 있습니다. 취소한 결과는 원고에 적용되지 않습니다. 다시 시도하려면 원하는 AI 작업 버튼을 누르세요.</p><p><strong>다시 불러오기</strong>는 AI 작업을 취소하고 마지막으로 저장된 작품을 불러옵니다. 저장하지 않은 변경사항이 있으면 먼저 확인하며, 불러오기에 실패하면 현재 원고를 유지합니다.</p></section>
@@ -895,9 +923,20 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
         </DialogContent>
       </Dialog>
 
+      <Dialog open={Boolean(pendingRewrite)} onOpenChange={(open) => !open && setPendingRewrite(null)}>
+        <DialogContent className="rewrite-dialog sm:max-w-lg">
+          <DialogHeader><DialogTitle>수정안을 만들까요?</DialogTitle><DialogDescription>확인하면 AI가 수정안을 작성합니다. 원고는 수정안을 적용하기 전까지 바뀌지 않습니다.</DialogDescription></DialogHeader>
+          <div className="rewrite-confirm-details">
+            <p><strong>수정 범위</strong><span>{pendingRewrite?.episodeNumber}화 · {pendingRewrite?.wholeEpisode ? "원고 전체" : "선택한 문단"} ({pendingRewrite?.original.length.toLocaleString()}자)</span></p>
+            <p><strong>수정 요청</strong><span>{pendingRewrite?.instruction}</span></p>
+          </div>
+          <DialogFooter><Button variant="ghost" onClick={() => setPendingRewrite(null)}>돌아가기</Button><Button onClick={confirmRewrite}><Sparkles />수정 시작</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={Boolean(rewriteProposal)} onOpenChange={(open) => !open && setRewriteProposal(null)}>
         <DialogContent className="rewrite-dialog sm:max-w-5xl">
-          <DialogHeader><DialogTitle>AI 정밀 편집 비교</DialogTitle><DialogDescription>{rewriteProposal?.wholeEpisode ? active.number + "화 전체 수정안" : "선택한 문단만 수정한 제안"}입니다. 원문은 그대로 보존되며, 적용을 눌러야 바뀝니다.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>AI 정밀 편집 비교</DialogTitle><DialogDescription>{rewriteProposal?.episodeNumber}화 {rewriteProposal?.wholeEpisode ? "전체 수정안" : "선택한 문단만 수정한 제안"}입니다. 원문은 그대로 보존되며, 적용을 눌러야 바뀝니다.</DialogDescription></DialogHeader>
           <div className="rewrite-compare">
             <section><span>원문</span><div>{rewriteProposal?.original}</div></section>
             <section><span>수정안</span><div>{rewriteProposal?.revised}</div></section>

@@ -309,6 +309,10 @@ button { cursor: pointer; }
 .custom-rewrite { display: grid; gap: 8px; margin-bottom: 10px; }
 .custom-rewrite textarea { min-height: 74px; resize: vertical; background: #111722; font-size: 11px; line-height: 1.5; }
 .custom-rewrite button { width: 100%; }
+.rewrite-task-control { position: fixed; right: 18px; bottom: 18px; z-index: 40; display: grid; gap: 10px; width: min(300px, calc(100vw - 36px)); padding: 12px; border: 1px solid #8c6937; border-radius: 10px; background: #2c2419; box-shadow: 0 12px 36px #0008; }
+.rewrite-task-control span { display: flex; align-items: flex-start; gap: 8px; color: #ffd28d; font-size: 0.875rem; line-height: 1.4; }
+.rewrite-task-control span svg { flex: none; width: 16px; height: 16px; margin-top: 2px; }
+.rewrite-task-control button { width: 100%; border-color: #a67d43; color: #ffd28d; }
 
 .foreshadow-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .foreshadow-card { padding: 20px; }
@@ -370,6 +374,10 @@ button { cursor: pointer; }
 .dialog-field-grid { display: grid; grid-template-columns: 1fr 1.35fr 0.7fr; gap: 12px; }
 .dialog-field-grid [data-slot="native-select-wrapper"] { width: 100%; }
 .rewrite-dialog { max-height: 90vh; overflow-y: auto; border-color: rgba(233, 170, 66, 0.22); color: var(--paper); background: #171e2a; }
+.rewrite-confirm-details { display: grid; gap: 10px; margin: 8px 0 4px; }
+.rewrite-confirm-details p { display: grid; gap: 4px; margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #111722; }
+.rewrite-confirm-details strong { color: #f0c673; font-size: 0.875rem; }
+.rewrite-confirm-details span { color: #d4dbe7; font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
 .manual-dialog { max-height: 90vh; overflow-y: auto; border-color: rgba(233, 170, 66, 0.28); color: var(--paper); background: #171e2a; }
 .manual-dialog [data-slot="dialog-title"] { font-family: "Iowan Old Style", "Noto Serif KR", Georgia, serif; font-size: 24px; }
 .manual-layout { display: grid; grid-template-columns: 155px minmax(0, 1fr); gap: 24px; margin: 6px 0 4px; }
