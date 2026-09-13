@@ -357,15 +357,17 @@ export async function POST(request: Request) {
     if (targetError) return Response.json({ error: targetError, code: "INVALID_TARGET_CHARACTERS" }, { status: 400 });
   } catch (error) { const problem = failure(error, request, signal); return Response.json(problem, { status: problem.status }); }
   const action = payload.action!;
-  if (!request.headers.get("accept")?.includes("application/x-ndjson")) {
+  const useSSE = request.headers.get("accept")?.includes("text/event-stream");
+  if (!useSSE && !request.headers.get("accept")?.includes("application/x-ndjson")) {
     try { return Response.json(await generate(request, payload, action, model, signal, () => undefined), { headers: { "Cache-Control": "no-store" } }); }
     catch (error) { const problem = failure(error, request, signal); return Response.json(problem, { status: problem.status }); }
   }
   const encoder = new TextEncoder();
+  const encode = (event: unknown) => encoder.encode(useSSE ? "data: " + JSON.stringify(event) + "\n\n" : JSON.stringify(event) + "\n");
   let closed = false;
   const stream = new ReadableStream<Uint8Array>({
     start(output) {
-      const emit: Emit = event => { if (!closed && !signal.aborted) output.enqueue(encoder.encode(JSON.stringify(event) + "\n")); };
+      const emit: Emit = event => { if (!closed && !signal.aborted) output.enqueue(encode(event)); };
       emit({ type: "progress", message: "AI 연결을 시작합니다." });
       const heartbeat = setInterval(() => emit({ type: "ping" }), 10000);
       void generate(request, payload, action, model, signal, emit)
@@ -373,11 +375,11 @@ export async function POST(request: Request) {
         .catch(error => {
           const problem = failure(error, request, signal);
           console.error("storywell_ai_error", JSON.stringify({ action, model, code: problem.code, status: problem.status }));
-          if (!closed) output.enqueue(encoder.encode(JSON.stringify({ type: "error", ...problem }) + "\n"));
+          if (!closed) output.enqueue(encode({ type: "error", ...problem }));
         })
         .finally(() => { clearInterval(heartbeat); if (!closed) { closed = true; output.close(); } });
     },
     cancel() { closed = true; controller.abort(); },
   });
-  return new Response(stream, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store, no-transform", "X-Content-Type-Options": "nosniff" } });
+  return new Response(stream, { headers: { "Content-Type": useSSE ? "text/event-stream; charset=utf-8" : "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store, no-transform", "X-Content-Type-Options": "nosniff" } });
 }

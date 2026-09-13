@@ -5,10 +5,11 @@ export async function requestAI(payload: Record<string, unknown>, signal: AbortS
   signal.throwIfAborted();
   const response = await fetch("/api/ai/generate", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
     body: JSON.stringify(payload), signal,
   });
-  if (!response.headers.get("content-type")?.includes("application/x-ndjson")) {
+  const streamType = response.headers.get("content-type") ?? "";
+  if (!streamType.includes("application/x-ndjson") && !streamType.includes("text/event-stream")) {
     let data: AIResult;
     try { data = await response.json() as AIResult; } catch {
       throw new Error("AI 응답 연결이 끊겼습니다. 기존 내용을 유지합니다. 잠시 후 다시 시도해 주세요.");
@@ -23,8 +24,9 @@ export async function requestAI(payload: Record<string, unknown>, signal: AbortS
   let buffer = "";
   let result: AIResult | undefined;
   const consume = (line: string) => {
-    if (!line.trim()) return;
-    const event = JSON.parse(line);
+    if (!line.trim() || line.startsWith(":")) return;
+    if (streamType.includes("text/event-stream") && !line.startsWith("data:")) return;
+    const event = JSON.parse(line.startsWith("data:") ? line.slice(5).trim() : line);
     signal.throwIfAborted();
     if (event.type === "error") throw new Error(event.error ?? "AI 생성에 실패했습니다.");
     if (event.type === "result") result = event.data;

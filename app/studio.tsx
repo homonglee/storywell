@@ -110,6 +110,7 @@ export default function StoryStudio() {
   const [aiModel, setAiModel] = useState("gpt-5.6-terra");
   const [modelOptions, setModelOptions] = useState<ModelOption[]>(defaultModelOptions);
   const [foreshadowDraft, setForeshadowDraft] = useState<Foreshadow | null>(null);
+  const [aiElapsed, setAiElapsed] = useState(0);
   const [aiProgress, setAiProgress] = useState("");
   const [aiPreview, setAiPreview] = useState("");
   const [aiError, setAiError] = useState("");
@@ -132,6 +133,12 @@ export default function StoryStudio() {
   const busy = Boolean(aiTask) || saving || deleting || loading || reloading;
 
   useEffect(() => () => { aiControllerRef.current?.abort(); }, []);
+  useEffect(() => {
+    if (!aiTask) return;
+    const started = Date.now(); setAiElapsed(0);
+    const timer = setInterval(() => setAiElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [aiTask]);
   useEffect(() => {
     if (!hasUnsavedChanges && !characterEditorDirty && !aiTask) return;
     const protectDraft = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
@@ -214,6 +221,7 @@ export default function StoryStudio() {
       setProjects(items => [saved, ...items.filter(item => item.id !== saved.id)]);
       setCurrent(saved); setActiveEpisode(1); setEpisodePage(0);
       setDialogOpen(false); setMobileOpen(false); setForm(initialForm); setSaving(false);
+      setAiProgress("시놉시스에 맞춘 인물과 세계관 설계를 요청했습니다.");
       controller.signal.throwIfAborted();
       const data = await requestAI({ action: "plan", project: saved, model: aiModel }, controller.signal, event => {
         if (event.message) setAiProgress(event.message);
@@ -668,7 +676,7 @@ export default function StoryStudio() {
         <section className="workspace">
           <div className="workspace-controls">
             <div className="task-status">
-              {aiTask ? <><LoaderCircle className="animate-spin" /><span role="status">{aiActionLabels[aiTask]} · {aiProgress || "진행 중"}</span><Button variant="outline" className="cancel-task-button" disabled={saving} onClick={() => cancelAI()}><Square />작업 취소</Button></> : <span role="status">{reloading ? "작품을 다시 불러오는 중…" : saving ? "원고를 저장하는 중…" : hasUnsavedChanges ? "저장하지 않은 변경사항이 있습니다" : savedCurrent ? "저장된 작품을 편집하고 있습니다" : "샘플 작품을 살펴보고 있습니다"}</span>}
+              {aiTask ? <><LoaderCircle className="animate-spin" /><span role="status">{aiActionLabels[aiTask]} · {aiProgress || "진행 중"} · {aiElapsed}초 경과</span><Button variant="outline" className="cancel-task-button" disabled={saving} onClick={() => cancelAI()}><Square />작업 취소</Button></> : <span role="status">{reloading ? "작품을 다시 불러오는 중…" : saving ? "원고를 저장하는 중…" : hasUnsavedChanges ? "저장하지 않은 변경사항이 있습니다" : savedCurrent ? "저장된 작품을 편집하고 있습니다" : "샘플 작품을 살펴보고 있습니다"}</span>}
             </div>
             <div className="workspace-control-buttons">
               <Button variant="outline" onClick={requestReload} disabled={saving || deleting || reloading || loading} title="진행 중인 AI 작업을 취소하고 저장된 작품을 다시 불러옵니다"><RefreshCw className={reloading ? "animate-spin" : ""} />다시 불러오기</Button>
@@ -701,7 +709,7 @@ export default function StoryStudio() {
               <div className="section-title"><div><span>MACRO PLOT</span><h2>12단계 전체 이야기 지도</h2></div><Badge variant="outline">{current.targetEpisodes}화 기준</Badge></div>
               <div className="arc-map">
                 {Array.from({ length: 12 }, (_, index) => {
-                  const episode = current.content.episodes[Math.min(current.content.episodes.length - 1, index * Math.ceil(current.content.episodes.length / 12))];
+                  const episode = current.content.episodes[Math.floor(index * (current.content.episodes.length - 1) / 11)];
                   return <button key={index} className="arc-node" onClick={() => { setActiveEpisode(episode.number); setEpisodePage(Math.floor((episode.number - 1) / 12)); }}><span>{String(index + 1).padStart(2, "0")}</span><strong>{episode.stage}</strong><small>{episode.number}화 부근</small></button>;
                 })}
               </div>
