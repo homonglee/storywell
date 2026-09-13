@@ -83,6 +83,8 @@ export type StoryContent = {
   memories?: StoryMemory[];
   issues?: ContinuityIssue[];
   currentSummary?: string;
+  worldRuleLocked?: boolean;
+  analyzedAt?: string;
 };
 
 export type StoryProject = {
@@ -164,6 +166,15 @@ function excerpt(synopsis: string, length = 72) {
 }
 
 export function buildStory(input: ProjectInput): StoryContent {
+  if (input.targetCharacters !== undefined && !isValidTargetCharacters(input.targetCharacters)) throw new Error("회차당 목표 글자 수는 1~20,000 사이의 정수로 입력해 주세요.");
+  const total = Math.max(12, Math.min(200, Math.trunc(Number(input.targetEpisodes) || 80)));
+  return { logline: "", theme: "", worldRule: "", centralQuestion: "", endingPromise: "",
+    characters: [], foreshadows: [], ideas: [], manuscript: "", episodeDrafts: {}, memories: [], issues: [], currentSummary: "",
+    episodes: Array.from({ length: total }, (_, index) => ({ number: index + 1, title: (index + 1) + "화 · 설계 대기", stage: "설계 대기", beat: "", emotion: "", hook: "", status: "planned", words: 0, targetCharacters: getTargetCharacters(input) })),
+  };
+}
+
+function buildSampleStory(input: ProjectInput): StoryContent {
   if (input.targetCharacters !== undefined && !isValidTargetCharacters(input.targetCharacters)) throw new Error("회차당 목표 글자 수는 1~20,000 사이의 정수로 입력해 주세요.");
   const targetCharacters = getTargetCharacters(input);
   const total = Math.max(12, Math.min(200, Number(input.targetEpisodes) || 80));
@@ -292,5 +303,5 @@ export function createSampleProject(): StoryProject {
     tone: "서늘하지만 따뜻한",
     targetEpisodes: 80,
   };
-  return { id: "sample", ...input, status: "설계 중", content: buildStory(input) };
+  return { id: "sample", ...input, status: "샘플 작품", content: buildSampleStory(input) };
 }

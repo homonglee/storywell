@@ -305,7 +305,7 @@ test('all character fields and new story targets persist through create, edit, a
   const collection = loadTS('app/api/projects/route.ts', bindings);
   const item = loadTS('app/api/projects/[id]/route.ts', bindings);
   const headers = { 'Content-Type': 'application/json', 'oai-authenticated-user-id': 'owner-a' };
-  const response = await collection.POST(new Request('https://storywell.test/api/projects', { method: 'POST', headers, body: JSON.stringify({ ...f.project, content: buildStory({ ...f.project, targetCharacters: 3400 }) }) }));
+  const response = await collection.POST(new Request('https://storywell.test/api/projects', { method: 'POST', headers, body: JSON.stringify({ ...f.project, content: { ...loadTS('lib/story-engine.ts').createSampleProject().content, episodes: buildStory({ ...f.project, targetCharacters: 3400 }).episodes } }) }));
   assert.equal(response.status, 201);
   let project = (await response.json()).project;
   const originalManuscript = project.content.manuscript;
@@ -338,4 +338,167 @@ test('blank character names and failed saves do not overwrite saved characters',
   const validBody = JSON.stringify({ ...f.project, content: { characters: [{ id: 'lead', name: '보존할 편집값' }] } });
   assert.equal((await item.PUT(new Request('https://storywell.test/api/projects/project-a', { method: 'PUT', headers, body: validBody }), params())).status, 500);
   assert.equal(f.sqlite.prepare('SELECT content FROM story_projects WHERE id = ?').get('project-a').content, '{}');
+});
+
+function eventResponse(events, chunkSize = 23) {
+  const bytes = new TextEncoder().encode(events.map(event => 'data: ' + JSON.stringify(event) + '\n\n').join(''));
+  return new Response(new ReadableStream({ start(controller) {
+    for (let index = 0; index < bytes.length; index += chunkSize) controller.enqueue(bytes.slice(index, index + chunkSize));
+    controller.close();
+  } }), { headers: { 'Content-Type': 'text/event-stream' } });
+}
+function completeEvent(text) {
+  return { type: 'response.completed', response: { status: 'completed', id: 'stream-test', output: [{ type: 'message', content: [{ type: 'output_text', text }] }] } };
+}
+
+test('new projects contain no demo characters, draft, memories or fabricated progress', () => {
+  const { buildStory, createSampleProject } = loadTS('lib/story-engine.ts');
+  const result = buildStory({ title: '심해 택배사', synopsis: '해저 도시에서 나린이 소포를 배달한다.', genre: 'SF', tone: '밝음', targetEpisodes: 21 });
+  assert.equal(result.episodes.length, 21);
+  assert.equal(result.characters.length, 0);
+  assert.equal(result.manuscript, '');
+  assert.deepEqual(result.episodeDrafts, {});
+  assert.deepEqual(result.memories, []);
+  assert.ok(result.episodes.every(episode => episode.status === 'planned' && episode.words === 0 && !episode.beat));
+  assert.equal(createSampleProject().content.characters[0].name, '서윤');
+});
+
+test('template filtering preserves authored fields and stored data; plan merge retains manuscripts, targets, IDs and locked rules', () => {
+  const { createSampleProject, buildStory } = loadTS('lib/story-engine.ts');
+  const { planningProject, mergeAIPlan, mergeMemories } = loadTS('lib/story-planning.ts');
+  const project = createSampleProject();
+  project.id = 'legacy-test';
+  project.content.characters[0].name = '작가가 고친 이름';
+  project.content.episodeDrafts['2'] = { episodeNumber: 2, body: '작가 원고', title: '둘째', status: 'done' };
+  const before = JSON.stringify(project);
+  const filtered = planningProject(project);
+  assert.equal(filtered.content.characters.length, 1);
+  assert.equal(filtered.content.characters[0].name, '작가가 고친 이름');
+  assert.equal(filtered.content.manuscript, '');
+  assert.equal(filtered.content.episodeDrafts['2'].body, '작가 원고');
+  assert.equal(JSON.stringify(project), before);
+  const base = { ...project.content, worldRule: '잠긴 규칙', worldRuleLocked: true };
+  base.episodes[1].targetCharacters = 7200;
+  const generated = { ...buildStory({ ...project, targetEpisodes: 80 }), worldRule: '덮어쓰면 안 됨', characters: [project.content.characters[0]] };
+  const merged = mergeAIPlan(base, generated);
+  assert.equal(merged.worldRule, '잠긴 규칙');
+  assert.equal(merged.characters[0].id, base.characters[0].id);
+  assert.equal(merged.episodes[1].status, 'done');
+  assert.equal(merged.episodes[1].words, 5);
+  assert.equal(merged.episodes[1].targetCharacters, 7200);
+  assert.equal(merged.episodeDrafts, base.episodeDrafts);
+  assert.equal(merged.manuscript, base.manuscript);
+  const previous = [{ category: '사건', subject: '봉인', fact: '원래 사실', locked: true }];
+  const memories = mergeMemories(previous, [{ ...previous[0], confidence: 10, locked: false }, { ...previous[0], fact: '새 사실', locked: false }]);
+  assert.equal(memories.length, 2);
+  assert.equal(memories[0].locked, true);
+});
+
+test('provider streaming decodes fragmented Korean and aggregates every completed text part', async () => {
+  const { readAIResponse } = loadTS('lib/server/response-reader.ts', { '@/lib/server/openai': { createOpenAIResponse: async body => {
+    assert.equal(body.stream, true);
+    return eventResponse([{ type: 'response.output_text.delta', delta: '한글 문장' }, { type: 'response.completed', response: { status: 'completed', output: [
+      { content: [{ type: 'output_text', text: '첫 장면.' }] }, { content: [{ type: 'output_text', text: '둘째 장면.' }] },
+    ] } }], 1);
+  } } });
+  let deltas = '';
+  const result = await readAIResponse({}, new AbortController().signal, text => { deltas += text; });
+  assert.equal(deltas, '한글 문장');
+  assert.equal(result.text, '첫 장면.둘째 장면.');
+});
+
+test('incomplete, refused and disconnected provider responses are never treated as a manuscript', async () => {
+  const { responseText } = loadTS('lib/server/response-reader.ts', { '@/lib/server/openai': {} });
+  assert.throws(() => responseText({ status: 'incomplete', output_text: '잘린 본문' }), error => error.code === 'AI_INCOMPLETE');
+  assert.throws(() => responseText({ status: 'completed', output: [{ content: [{ type: 'refusal', refusal: 'no' }] }] }), error => error.code === 'AI_REFUSAL');
+  const { readAIResponse } = loadTS('lib/server/response-reader.ts', { '@/lib/server/openai': { createOpenAIResponse: async () => eventResponse([{ type: 'response.output_text.delta', delta: '중간 내용' }]) } });
+  await assert.rejects(readAIResponse({}, new AbortController().signal, () => undefined), error => error.code === 'AI_DISCONNECTED');
+});
+
+test('API quota exhaustion is distinguished from a temporary rate limit', async () => {
+  const { providerError } = loadTS('lib/server/response-reader.ts', { '@/lib/server/openai': {} });
+  assert.match(providerError(429, { error: { code: 'insufficient_quota' } }).message, /크레딧/);
+  assert.doesNotMatch(providerError(429, { error: { code: 'rate_limit_exceeded' } }).message, /크레딧/);
+});
+
+test('streaming API and browser client deliver progress and only persist completed results', async t => {
+  const f = fixture(t);
+  const route = generationRoute(f.DB, async () => eventResponse([{ type: 'response.output_text.delta', delta: '완성 원고' }, completeEvent('완성 원고')]));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => route.POST(new Request('https://storywell.test/api/ai/generate', init)));
+  const { requestAI } = loadTS('lib/ai-request.ts');
+  const progress = [];
+  const result = await requestAI({ action: 'episode', project: f.project, episode: { number: 1 } }, new AbortController().signal, event => progress.push(event));
+  assert.equal(result.result, '완성 원고');
+  assert.ok(progress.some(event => event.type === 'progress'));
+  assert.ok(progress.some(event => event.type === 'delta' && event.text === '완성 원고'));
+  // This request has no owner header, so it must not attach history to owner-a.
+  assert.equal(f.count('story_generations'), 0);
+});
+
+test('failed streams report an error and do not store partial generations', async t => {
+  const f = fixture(t);
+  const route = generationRoute(f.DB, async () => eventResponse([
+    { type: 'response.output_text.delta', delta: '부분 원고' },
+    { type: 'response.incomplete', response: { status: 'incomplete', output_text: '부분 원고' } },
+  ]));
+  const req = generationRequest(f.project);
+  req.headers.set('accept', 'application/x-ndjson');
+  const stream = await (await route.POST(req)).text();
+  assert.match(stream, /AI_INCOMPLETE/);
+  assert.doesNotMatch(stream, /"type":"result"/);
+  assert.equal(f.count('story_generations'), 0);
+});
+
+test('client rejects disconnected streams and an explicit server error after partial text', async t => {
+  const { requestAI } = loadTS('lib/ai-request.ts');
+  let body = JSON.stringify({ type: 'delta', text: '부분' }) + '\n';
+  t.mock.method(globalThis, 'fetch', async () => new Response(body, { headers: { 'Content-Type': 'application/x-ndjson' } }));
+  await assert.rejects(requestAI({}, new AbortController().signal), /완료 전에/);
+  body += JSON.stringify({ type: 'error', error: '요청 한도 초과' }) + '\n';
+  await assert.rejects(requestAI({}, new AbortController().signal), /요청 한도 초과/);
+});
+
+test('plans span all requested episodes in bounded batches and reject duplicate events', async t => {
+  const f = fixture(t);
+  const { buildStory } = loadTS('lib/story-engine.ts');
+  const project = { ...f.project, targetEpisodes: 21, content: buildStory({ ...f.project, targetEpisodes: 21 }) };
+  let calls = 0;
+  const bible = { logline: '고유 로그라인', theme: '믿음', worldRule: '조수의 규칙', centralQuestion: '믿을 것인가', endingPromise: '도시 회복',
+    characters: [{ name: '나린', role: '주인공', archetype: '배달부', desire: '배달 완료', fear: '침수', secret: '지도', voice: '짧게', state: '출발' }],
+    foreshadows: [{ label: '소포', seedEpisode: 1, payoffEpisode: 21, status: 'planned', note: '도시 열쇠' }], ideas: [], arcOutline: '출발, 폭풍, 회복' };
+  const route = generationRoute(f.DB, async body => {
+    calls++;
+    assert.equal(body.stream, true);
+    if (calls === 1) { assert.equal(body.text.format.name, 'story_bible'); assert.doesNotMatch(body.input, /서윤|도진|문이 열린 밤/); return eventResponse([completeEvent(JSON.stringify(bible))]); }
+    const first = calls === 2 ? 1 : 21;
+    const last = calls === 2 ? 20 : 21;
+    return eventResponse([completeEvent(JSON.stringify({ episodes: Array.from({ length: last - first + 1 }, (_, index) => ({ number: first + index, title: '고유 사건 ' + (first + index), beat: '선택과 결과 ' + (first + index), stage: '항해', emotion: '용기', hook: '새 단서 ' + (first + index) })) }))]);
+  });
+  const response = await route.POST(generationRequest(project, undefined, { action: 'plan' }));
+  assert.equal(response.status, 200);
+  const result = (await response.json()).result;
+  assert.equal(calls, 3);
+  assert.deepEqual(result.episodes.map(item => item.number), Array.from({ length: 21 }, (_, i) => i + 1));
+  assert.equal(new Set(result.episodes.map(item => item.title)).size, 21);
+  assert.equal(f.count('story_generations'), 1);
+
+  let duplicateCalls = 0;
+  const badRoute = generationRoute(f.DB, async () => {
+    duplicateCalls++;
+    return Response.json({ output_text: JSON.stringify(duplicateCalls === 1 ? bible : { episodes: Array.from({ length: 20 }, (_, i) => ({ number: i + 1, title: '반복', beat: '반복', stage: '항해', emotion: '불안', hook: '끝' })) }) });
+  });
+  const failed = await badRoute.POST(generationRequest(project, undefined, { action: 'plan' }));
+  assert.equal(failed.status, 502);
+  assert.equal((await failed.json()).code, 'INVALID_AI_PLAN');
+  assert.equal(f.count('story_generations'), 1);
+});
+
+test('episode context includes the selected chapter and excludes future drafts before limiting history', async t => {
+  const f = fixture(t);
+  let sent;
+  const route = generationRoute(f.DB, async body => { sent = body; return Response.json({ output_text: '완성' }); });
+  const project = { ...f.project, content: { episodeDrafts: Object.fromEntries(Array.from({ length: 15 }, (_, i) => [String(i + 1), { episodeNumber: i + 1, body: '회차 본문 ' + (i + 1) }])) } };
+  await route.POST(generationRequest(project, undefined, { episode: { number: 2 } }));
+  const context = JSON.parse(sent.input.match(/<story_data>(\{.*?)<\/story_data>/s)[1]);
+  assert.deepEqual(context.recentEpisodeDrafts.map(item => item.episodeNumber), [1, 2]);
 });

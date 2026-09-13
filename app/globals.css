@@ -548,3 +548,11 @@ button { cursor: pointer; }
   .character-editor-footer > button { width: 100%; }
   .character-editor-footer .character-delete-button { margin-right: 0; }
 }
+
+.ai-error-panel, .ai-template-notice, .ai-preview-panel { margin: 0 0 20px; padding: 16px; border: 1px solid #775239; border-radius: 12px; background: #241e1b; color: #e9cba5; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.ai-error-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; border-color: #76464a; color: #ffc0bb; background: #291d23; }
+.ai-error-panel > span { flex: 1; min-width: 180px; }
+.ai-preview-panel { background: #151d28; border-color: #364355; color: #d3dce9; }
+.ai-preview-panel p { margin-bottom: 8px; color: #e6b969; }
+.ai-preview-panel pre { white-space: pre-wrap; font: inherit; max-height: 200px; overflow-y: auto; }
+.new-project-dialog, .character-editor-dialog { scrollbar-width: thin; scrollbar-color: #586172 #19202b; color-scheme: dark; }

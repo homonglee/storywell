@@ -13,9 +13,10 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Toaster } from "@/components/ui/sonner";
-import { buildStory, createSampleProject, type Character, type EpisodeDraft, type ProjectInput, type StoryIdea, type StoryProject } from "@/lib/story-engine";
+import { buildStory, createSampleProject, type Character, type Foreshadow, type EpisodeDraft, type ProjectInput, type StoryIdea, type StoryProject } from "@/lib/story-engine";
 
 import { isAIAbort, requestAI } from "@/lib/ai-request";
+import { mergeAIPlan, mergeMemories, isTemplateContent } from "@/lib/story-planning";
 import { EpisodeTargetInput } from "@/components/episode-target-input";
 import { CharacterEditorDialog } from "@/components/character-editor-dialog";
 import { createCharacterDraft, saveCharacterInProject, removeCharacterFromProject } from "@/lib/character-editor";
@@ -26,9 +27,9 @@ const tones = ["빠르고 통쾌한", "서늘하지만 따뜻한", "유쾌하고
 type ModelTool = { name: string; title?: string; description: string; inputSchema: Record<string, unknown>; annotations?: { readOnlyHint?: boolean; untrustedContentHint?: boolean }; execute: (input: unknown) => unknown | Promise<unknown> };
 type ModelContextDocument = Document & { modelContext?: { registerTool: (tool: ModelTool, options?: { signal?: AbortSignal }) => void | Promise<void> } };
 const initialForm: ProjectInput = { title: "", synopsis: "", genre: "현대 판타지", tone: "서늘하지만 따뜻한", targetEpisodes: 80, targetCharacters: DEFAULT_TARGET_CHARACTERS };
-type AIAction = "plan" | "episode" | "rewrite" | "analyze";
-const aiActionLabels: Record<AIAction, string> = { plan: "전체 설계", episode: "회차 집필", rewrite: "원고 다듬기", analyze: "연속성 검사" };
-type GenerationVersion = { id: string; action: "plan" | "episode" | "rewrite" | "analyze"; model: string; inputSummary: string; output: string; createdAt: string };
+type AIAction = "plan" | "episode" | "rewrite" | "analyze" | "ideas";
+const aiActionLabels: Record<AIAction, string> = { plan: "전체 설계", episode: "회차 집필", rewrite: "원고 다듬기", analyze: "연속성 검사", ideas: "소재 제안" };
+type GenerationVersion = { id: string; action: "plan" | "episode" | "rewrite" | "analyze" | "ideas"; model: string; inputSummary: string; output: string; createdAt: string };
 type RewriteProposal = { original: string; revised: string; start: number; end: number; wholeEpisode: boolean; instruction: string };
 type ModelOption = { id: string; label: string; note: string };
 const defaultModelOptions: ModelOption[] = [
@@ -92,19 +93,6 @@ function updateEpisodeDraft(project: StoryProject, episodeNumber: number, body: 
   };
 }
 
-function mergeAIPlan(base: StoryProject["content"], result: Partial<StoryProject["content"]>) {
-  const palette = ["#f6b44b", "#73c5d8", "#c796ff", "#ff7b72", "#8ec5a4", "#ef91ba"];
-  if (!result.episodes?.length || !result.characters?.length) throw new Error("AI가 완전한 이야기 구조를 반환하지 못했습니다.");
-  return {
-    ...base,
-    ...result,
-    characters: result.characters.map((character, index) => ({ ...character, id: "ai-character-" + index, color: palette[index % palette.length] })),
-    episodes: withEpisodeTargets(result.episodes, base.episodes).map((episode) => ({ ...episode, status: episode.number === 1 ? "draft" as const : "planned" as const, words: 0 })),
-    foreshadows: (result.foreshadows ?? []).map((item, index) => ({ ...item, id: "ai-foreshadow-" + index })),
-    ideas: result.ideas ?? [],
-  };
-}
-
 export default function StoryStudio() {
   const sample = useMemo(() => createSampleProject(), []);
   const [projects, setProjects] = useState<StoryProject[]>([]);
@@ -121,6 +109,10 @@ export default function StoryStudio() {
   const [aiConfigured, setAiConfigured] = useState(false);
   const [aiModel, setAiModel] = useState("gpt-5.6-terra");
   const [modelOptions, setModelOptions] = useState<ModelOption[]>(defaultModelOptions);
+  const [foreshadowDraft, setForeshadowDraft] = useState<Foreshadow | null>(null);
+  const [aiProgress, setAiProgress] = useState("");
+  const [aiPreview, setAiPreview] = useState("");
+  const [aiError, setAiError] = useState("");
   const [aiTask, setAiTask] = useState<AIAction | null>(null);
   const aiControllerRef = useRef<AbortController | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -141,11 +133,11 @@ export default function StoryStudio() {
 
   useEffect(() => () => { aiControllerRef.current?.abort(); }, []);
   useEffect(() => {
-    if (!hasUnsavedChanges && !characterEditorDirty) return;
+    if (!hasUnsavedChanges && !characterEditorDirty && !aiTask) return;
     const protectDraft = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
     window.addEventListener("beforeunload", protectDraft);
     return () => window.removeEventListener("beforeunload", protectDraft);
-  }, [hasUnsavedChanges, characterEditorDirty]);
+  }, [hasUnsavedChanges, characterEditorDirty, aiTask]);
 
   useEffect(() => {
     let active = true;
@@ -160,7 +152,7 @@ export default function StoryStudio() {
         setProjects(normalized);
         if (normalized.length) setCurrent(normalized[0]);
       })
-      .catch(() => toast.info("샘플 작품으로 시작합니다. 새 작품은 정상적으로 저장할 수 있습니다."))
+      .catch(() => toast.error("작품 보관함을 불러오지 못했습니다. 연결을 확인하고 다시 불러오기를 눌러 주세요."))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
   }, []);
@@ -208,25 +200,41 @@ export default function StoryStudio() {
   }, []);
 
   const createProject = useCallback(async (input: ProjectInput) => {
-    const title = input.title.trim();
-    const synopsis = input.synopsis.trim();
+    const title = input.title.trim(), synopsis = input.synopsis.trim();
     if (!title || !synopsis) throw new Error("제목과 시놉시스를 입력해 주세요.");
-    const draft: StoryProject = { id: "draft-" + Date.now(), ...input, title, synopsis, status: "설계 중", content: buildStory(input) };
+    if (!aiConfigured) throw new Error("AI 연결을 확인하지 못했습니다. 잠시 후 새로고침하여 다시 시도해 주세요.");
+    if (aiControllerRef.current) throw new Error("진행 중인 AI 작업을 먼저 취소해 주세요.");
+    const draft: StoryProject = { id: "draft-" + crypto.randomUUID(), ...input, title, synopsis, status: "AI 설계 대기", content: buildStory(input) };
+    const controller = new AbortController();
+    aiControllerRef.current = controller;
+    setAiTask("plan"); setAiError(""); setAiProgress("작품 정보를 저장합니다."); setAiPreview("");
     setSaving(true);
     try {
       const saved = await persistProject(draft);
-      setProjects((items) => [saved, ...items.filter((item) => item.id !== saved.id)]);
-      setCurrent(saved);
-      setActiveEpisode(1);
-      setEpisodePage(0);
-      setDialogOpen(false);
-      setForm(initialForm);
-      toast.success("전체 이야기 설계가 완성되었습니다.");
-      return saved;
+      setProjects(items => [saved, ...items.filter(item => item.id !== saved.id)]);
+      setCurrent(saved); setActiveEpisode(1); setEpisodePage(0);
+      setDialogOpen(false); setMobileOpen(false); setForm(initialForm); setSaving(false);
+      controller.signal.throwIfAborted();
+      const data = await requestAI({ action: "plan", project: saved, model: aiModel }, controller.signal, event => {
+        if (event.message) setAiProgress(event.message);
+      });
+      controller.signal.throwIfAborted();
+      if (!data.result) throw new Error("AI 설계 결과가 없습니다.");
+      const updated = { ...saved, status: "AI 설계 완료", content: mergeAIPlan(saved.content, data.result as Partial<StoryProject["content"]>) };
+      setSaving(true);
+      const completed = await persistProject(updated);
+      setCurrent(completed); setProjects(items => [completed, ...items.filter(item => item.id !== completed.id)]);
+      setVersionTick(value => value + 1);
+      toast.success("시놉시스에 맞춘 AI 전체 설계를 저장했습니다.");
+      return completed;
+    } catch (error) {
+      if (!isAIAbort(error)) setAiError((error instanceof Error ? error.message : "AI 설계에 실패했습니다.") + " 저장된 작품에서 ‘AI로 전체 설계’를 눌러 다시 시도할 수 있습니다.");
+      throw error;
     } finally {
       setSaving(false);
+      if (aiControllerRef.current === controller) { aiControllerRef.current = null; setAiTask(null); }
     }
-  }, [persistProject]);
+  }, [persistProject, aiConfigured, aiModel]);
 
   useEffect(() => {
     const modelContext = (document as ModelContextDocument).modelContext;
@@ -305,33 +313,36 @@ export default function StoryStudio() {
   };
   const cancelAI = (notify = true) => {
     const controller = aiControllerRef.current;
-    if (!controller) return;
+    if (!controller || saving) return;
     controller.abort();
     aiControllerRef.current = null;
     setAiTask(null);
+    setAiProgress(""); setAiPreview("");
     if (notify) toast.info("AI 작업을 취소했습니다. 기존 원고는 그대로 유지됩니다.");
   };
 
   const callAI = async (action: AIAction, extra: Record<string, unknown> = {}) => {
     const targetError = getContentTargetError(current.content);
     if (targetError) throw new Error(targetError);
-    if (!aiConfigured) throw new Error("AI 연결이 필요합니다. OpenAI Developers 연결을 완료해 주세요.");
+    if (!aiConfigured) throw new Error("AI 연결을 확인하지 못했습니다. 잠시 후 새로고침해 주세요.");
     if (aiControllerRef.current) throw new Error("진행 중인 AI 작업을 먼저 취소해 주세요.");
     const controller = new AbortController();
     aiControllerRef.current = controller;
-    setAiTask(action);
+    setAiTask(action); setAiError(""); setAiProgress("AI 연결을 시작합니다."); setAiPreview("");
     try {
-      const data = await requestAI({ action, project: current, model: aiModel, ...extra }, controller.signal);
+      const data = await requestAI({ action, project: current, model: aiModel, ...extra }, controller.signal, event => {
+        if (event.message) setAiProgress(event.message);
+        if (event.type === "delta" && event.text) setAiPreview(text => (text + event.text).slice(-1200));
+      });
       controller.signal.throwIfAborted();
       if (data.model) setAiModel(data.model);
-      setVersionTick((value) => value + 1);
+      setVersionTick(value => value + 1);
       return data.result;
+    } catch (error) {
+      if (!isAIAbort(error)) setAiError(error instanceof Error ? error.message : "AI 생성에 실패했습니다.");
+      throw error;
     } finally {
-      // A cancelled request must not clear the state of a newer request.
-      if (aiControllerRef.current === controller) {
-        aiControllerRef.current = null;
-        setAiTask(null);
-      }
+      if (aiControllerRef.current === controller) { aiControllerRef.current = null; setAiTask(null); }
     }
   };
 
@@ -421,6 +432,7 @@ export default function StoryStudio() {
 
   const generateEpisode = async () => {
     try {
+      if (!active.beat?.trim() || !current.content.characters.length) throw new Error("먼저 AI로 전체 설계를 완료한 뒤 집필해 주세요.");
       const text = (await callAI("episode", { episode: active })) as string;
       if (!text?.trim()) throw new Error("생성된 원고가 비어 있습니다.");
       const updated = updateEpisodeDraft(current, active.number, text);
@@ -465,7 +477,7 @@ export default function StoryStudio() {
 
   const analyzeContinuity = async () => {
     try {
-      const result = (await callAI("analyze")) as {
+      const result = (await callAI("analyze", { episode: active })) as {
         summary?: string;
         memories?: StoryProject["content"]["memories"];
         issues?: StoryProject["content"]["issues"];
@@ -473,7 +485,7 @@ export default function StoryStudio() {
       };
       const stateMap = new Map((result.stateChanges ?? []).map((item) => [item.character, item.state]));
       const characters = current.content.characters.map((character) => ({ ...character, state: stateMap.get(character.name) ?? character.state }));
-      const updated = { ...current, content: { ...current.content, characters, memories: result.memories ?? [], issues: result.issues ?? [], currentSummary: result.summary ?? current.content.currentSummary } };
+      const updated = { ...current, content: { ...current.content, characters, memories: mergeMemories(current.content.memories ?? [], result.memories ?? []), issues: result.issues ?? [], currentSummary: result.summary ?? current.content.currentSummary, analyzedAt: new Date().toISOString() } };
       await persistUpdated(updated, "원고에서 새 기억을 추출하고 연속성을 검사했습니다.");
     } catch (error) {
       if (!isAIAbort(error)) toast.error(error instanceof Error ? error.message : "연속성 검사에 실패했습니다.");
@@ -489,6 +501,9 @@ export default function StoryStudio() {
         content = restored.content;
       } else if (version.action === "plan") {
         content = mergeAIPlan(content, JSON.parse(version.output) as Partial<StoryProject["content"]>);
+      } else if (version.action === "ideas") {
+        const result = JSON.parse(version.output) as { ideas?: StoryIdea[] };
+        content = { ...content, ideas: result.ideas ?? content.ideas };
       } else {
         const result = JSON.parse(version.output) as { summary?: string; memories?: StoryProject["content"]["memories"]; issues?: StoryProject["content"]["issues"] };
         content = { ...content, currentSummary: result.summary, memories: result.memories ?? [], issues: result.issues ?? [] };
@@ -498,16 +513,21 @@ export default function StoryStudio() {
       toast.error(error instanceof Error ? error.message : "버전을 복원하지 못했습니다.");
     }
   };
-  const addIdea = () => {
-    const sources = [
-      { title: "목격자가 기억한 다른 결말", source: "미회수 복선", reason: "같은 사건을 다른 시점에서 재구성해 기존 장면의 의미를 바꿉니다.", energy: "반전" as const },
-      { title: "라이벌의 불완전한 구원", source: "인물 관계", reason: "경쟁자가 주인공을 돕되 더 큰 빚을 남겨 관계 갈등을 확장합니다.", energy: "감정" as const },
-      { title: "세계관 규칙이 멈춘 하루", source: "규칙의 예외", reason: "기존 규칙을 부수지 않고 그 바깥에 있던 조건을 드러냅니다.", energy: "확장" as const },
-    ];
-    const seed = sources[current.content.ideas.length % sources.length];
-    const next: StoryIdea = { ...seed, span: "3~6화" };
-    updateContent({ ideas: [next, ...current.content.ideas] });
-    toast.success("현재 맥락에서 새 소재를 길어 올렸습니다.");
+  const addIdea = async () => {
+    try {
+      const result = await callAI("ideas") as { ideas?: StoryIdea[] };
+      if (!result?.ideas?.length) throw new Error("AI 소재가 비어 있습니다.");
+      await persistUpdated({ ...current, content: { ...current.content, ideas: [...result.ideas, ...current.content.ideas] } }, "작품에 맞춘 새 AI 소재를 저장했습니다.");
+    } catch (error) { if (!isAIAbort(error)) toast.error(error instanceof Error ? error.message : "소재 생성에 실패했습니다."); }
+  };
+  const toggleWorldRule = async () => {
+    try { await persistUpdated({ ...current, content: { ...current.content, worldRuleLocked: !current.content.worldRuleLocked } }, current.content.worldRuleLocked ? "세계관 규칙 잠금을 해제했습니다." : "세계관 규칙을 잠그고 저장했습니다."); }
+    catch (error) { toast.error(error instanceof Error ? error.message : "설정 저장에 실패했습니다."); }
+  };
+  const applyIdea = async (idea: StoryIdea) => {
+    try {
+      await persistUpdated({ ...current, content: { ...current.content, episodes: current.content.episodes.map(episode => episode.number === active.number ? { ...episode, beat: episode.beat + "\n소재 후보: " + idea.title + " — " + idea.reason } : episode) } }, active.number + "화 설계에 소재 후보를 추가했습니다.");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "소재를 저장하지 못했습니다."); }
   };
   const addCharacter = () => setCharacterEditor({ projectId: current.id, original: null, draft: createCharacterDraft() });
   const saveCharacter = async () => {
@@ -532,21 +552,17 @@ export default function StoryStudio() {
       toast.error(error instanceof Error ? error.message : "인물을 삭제하지 못했습니다.");
     }
   };
-  const addForeshadow = () => {
-    updateContent({
-      foreshadows: [
-        ...current.content.foreshadows,
-        {
-          id: "foreshadow-" + Date.now(),
-          label: "이름 없는 새 복선",
-          seedEpisode: activeEpisode,
-          payoffEpisode: Math.min(current.targetEpisodes, activeEpisode + 12),
-          status: "planned",
-          note: "설치 장면과 회수 의미를 구체화해 주세요.",
-        },
-      ],
-    });
-    toast.success(activeEpisode + "화에 새 복선을 등록했습니다.");
+  const addForeshadow = () => setForeshadowDraft({ id: "foreshadow-" + crypto.randomUUID(), label: "", seedEpisode: activeEpisode, payoffEpisode: Math.min(current.targetEpisodes, activeEpisode + 12), status: "planned", note: "" });
+  const saveForeshadow = async () => {
+    if (!foreshadowDraft || busy) return;
+    if (!foreshadowDraft.label.trim() || !Number.isInteger(foreshadowDraft.seedEpisode) || !Number.isInteger(foreshadowDraft.payoffEpisode) || foreshadowDraft.seedEpisode < 1 || foreshadowDraft.seedEpisode > foreshadowDraft.payoffEpisode || foreshadowDraft.payoffEpisode > current.targetEpisodes) {
+      toast.error("복선 이름과 작품 범위 안의 설치·회수 회차를 확인해 주세요."); return;
+    }
+    const exists = current.content.foreshadows.some(item => item.id === foreshadowDraft.id);
+    try {
+      await persistUpdated({ ...current, content: { ...current.content, foreshadows: exists ? current.content.foreshadows.map(item => item.id === foreshadowDraft.id ? foreshadowDraft : item) : [...current.content.foreshadows, foreshadowDraft] } }, "복선을 저장했습니다.");
+      setForeshadowDraft(null);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "복선을 저장하지 못했습니다."); }
   };
 
   const filteredProjects = projects.filter((project) => project.title.toLowerCase().includes(query.toLowerCase()));
@@ -585,7 +601,7 @@ export default function StoryStudio() {
   };
   const submitProject = async (event: FormEvent) => {
     event.preventDefault();
-    try { await createProject(form); } catch (error) { toast.error(error instanceof Error ? error.message : "작품을 만들지 못했습니다."); }
+    try { await createProject(form); } catch (error) { if (!isAIAbort(error)) toast.error(error instanceof Error ? error.message : "작품을 만들지 못했습니다."); }
   };
   const chooseModel = (model: string) => {
     setAiModel(model);
@@ -652,13 +668,16 @@ export default function StoryStudio() {
         <section className="workspace">
           <div className="workspace-controls">
             <div className="task-status">
-              {aiTask ? <><LoaderCircle className="animate-spin" /><span role="status">{aiActionLabels[aiTask]} 진행 중</span><Button variant="outline" className="cancel-task-button" onClick={() => cancelAI()}><Square />작업 취소</Button></> : <span role="status">{reloading ? "작품을 다시 불러오는 중…" : saving ? "원고를 저장하는 중…" : hasUnsavedChanges ? "저장하지 않은 변경사항이 있습니다" : savedCurrent ? "저장된 작품을 편집하고 있습니다" : "샘플 작품을 살펴보고 있습니다"}</span>}
+              {aiTask ? <><LoaderCircle className="animate-spin" /><span role="status">{aiActionLabels[aiTask]} · {aiProgress || "진행 중"}</span><Button variant="outline" className="cancel-task-button" disabled={saving} onClick={() => cancelAI()}><Square />작업 취소</Button></> : <span role="status">{reloading ? "작품을 다시 불러오는 중…" : saving ? "원고를 저장하는 중…" : hasUnsavedChanges ? "저장하지 않은 변경사항이 있습니다" : savedCurrent ? "저장된 작품을 편집하고 있습니다" : "샘플 작품을 살펴보고 있습니다"}</span>}
             </div>
             <div className="workspace-control-buttons">
               <Button variant="outline" onClick={requestReload} disabled={saving || deleting || reloading || loading} title="진행 중인 AI 작업을 취소하고 저장된 작품을 다시 불러옵니다"><RefreshCw className={reloading ? "animate-spin" : ""} />다시 불러오기</Button>
               <Button variant="outline" className="delete-project-button" onClick={() => setDeleteOpen(true)} disabled={busy || !savedCurrent}><Trash2 />작품 삭제</Button>
             </div>
           </div>
+          {aiError ? <div className="ai-error-panel" role="alert"><CircleAlert /><span>{aiError}</span><Button variant="ghost" onClick={() => setAiError("")}>닫기</Button></div> : null}
+          {aiTask && aiPreview ? <div className="ai-preview-panel"><p>생성 중인 본문 · 완료 후 저장됩니다</p><pre>{aiPreview}</pre></div> : null}
+          {isTemplateContent(current.content) && current.id !== "sample" ? <div className="ai-template-notice">이 작품에는 이전 버전의 기본 예시가 포함되어 있습니다. ‘AI로 전체 설계’를 실행하면 시놉시스에 맞춰 인물과 회차를 새로 설계합니다. 저장된 원고는 유지됩니다.</div> : null}
           <div className="workspace-head">
             <div><div className="eyebrow"><span>{current.genre}</span><i /><span>{current.tone}</span></div><h1>{current.title}</h1><p>{current.synopsis}</p></div>
             <Button className="magic-button" onClick={regeneratePlan} disabled={busy}>{aiTask === "plan" ? <LoaderCircle className="animate-spin" /> : <WandSparkles />}{aiTask === "plan" ? "전체 이야기를 설계하는 중…" : "AI로 전체 설계"}</Button>
@@ -677,7 +696,7 @@ export default function StoryStudio() {
             <TabsContent value="overview" className="tab-panel">
               <div className="overview-grid">
                 <article className="feature-card wide-card"><div className="card-kicker"><Sparkles />작품의 한 문장</div><h2>{current.content.logline}</h2><div className="theme-quote"><span>핵심 질문</span><p>{current.content.centralQuestion}</p></div></article>
-                <article className="feature-card rule-card"><div className="card-kicker"><ShieldCheck />절대 규칙</div><p>{current.content.worldRule}</p><button className="text-action" onClick={() => toast.success("핵심 세계관 규칙을 잠갔습니다.")}>설정 잠금 <ChevronRight /></button></article>
+                <article className="feature-card rule-card"><div className="card-kicker"><ShieldCheck />절대 규칙</div><p>{current.content.worldRule}</p><button className="text-action" disabled={busy || !current.content.worldRule} onClick={toggleWorldRule}>{current.content.worldRuleLocked ? "잠금 해제" : "설정 잠금"} <ChevronRight /></button></article>
               </div>
               <div className="section-title"><div><span>MACRO PLOT</span><h2>12단계 전체 이야기 지도</h2></div><Badge variant="outline">{current.targetEpisodes}화 기준</Badge></div>
               <div className="arc-map">
@@ -688,7 +707,7 @@ export default function StoryStudio() {
               </div>
               <div className="overview-bottom">
                 <article className="feature-card"><div className="card-kicker"><BrainCircuit />주제와 결말의 약속</div><h3>{current.content.theme}</h3><p>{current.content.endingPromise}</p></article>
-                <article className="feature-card continuity-card"><div className="card-kicker"><Check />맥락 건강도</div><strong>96</strong><span>/ 100</span><p>현재 설정 충돌 없음 · 확인 필요 항목 2개</p></article>
+                <article className="feature-card continuity-card"><div className="card-kicker"><ShieldCheck />연속성 검사</div><strong>{current.content.analyzedAt ? (current.content.issues?.length ?? 0) : "—"}</strong><span>{current.content.analyzedAt ? "개 확인 항목" : "미검사"}</span><p>{current.content.analyzedAt ? "마지막 검사: " + formatDate(current.content.analyzedAt) : "AI 연속성 검사를 실행하면 실제 결과가 표시됩니다."}</p></article>
               </div>
             </TabsContent>
 
@@ -733,7 +752,7 @@ export default function StoryStudio() {
               </section>
               <aside className="writing-assistant">
                 <div className="assistant-title"><BrainCircuit /><div><strong>집필 조력자</strong><span>기억 {current.content.memories?.length ?? 0}개 · 현재 회차 맥락 연결</span></div></div>
-                <div className="assistant-check"><h3>이번 화 체크</h3><p><Check />주인공의 목표가 분명함</p><p><Check />이전 화 감정선 연결</p><p><CircleAlert />도진의 호칭 복선 확인</p></div>
+                <div className="assistant-check"><h3>이번 화 설계</h3><p>{active.beat || "전체 설계를 완료하면 이번 화의 사건이 표시됩니다."}</p><p>{active.emotion ? "감정: " + active.emotion : ""}</p><p>{active.hook ? "마지막 훅: " + active.hook : ""}</p></div>
                 <Button className="assistant-generate episode-generate" onClick={generateEpisode} disabled={busy}>{aiTask === "episode" ? <LoaderCircle className="animate-spin" /> : <Feather />}{aiTask === "episode" ? "원고를 집필하는 중…" : "AI로 이번 화 집필"}</Button>
                 <p className="selection-hint">문장을 선택하면 그 부분만, 선택하지 않으면 회차 전체를 수정합니다. 결과는 적용 전에 비교할 수 있습니다.</p>
                 <div className="assistant-actions"><button onClick={() => rewriteManuscript("대사를 더 짧고 날카롭게 다듬어라.")} disabled={busy}>대사를 더 날카롭게</button><button onClick={() => rewriteManuscript("감정을 직접 설명하지 말고 행동과 감각으로 더 섬세하게 보여줘라.")} disabled={busy}>감정선을 더 섬세하게</button><button onClick={() => rewriteManuscript("사건 진행 속도를 높이고 불필요한 설명을 덜어내라.")} disabled={busy}>전개 속도 높이기</button><button onClick={() => rewriteManuscript("마지막 장면의 긴장과 클리프행어를 강화하라.")} disabled={busy}>마지막 훅 강화</button></div>
@@ -745,7 +764,7 @@ export default function StoryStudio() {
             <TabsContent value="foreshadow" className="tab-panel">
               <div className="section-title"><div><span>FORESHADOW TRACKER</span><h2>복선의 설치부터 회수까지</h2></div><div className="section-actions"><Button variant="outline" disabled={busy} onClick={addForeshadow}><Plus />복선 등록</Button><Button className="magic-button" onClick={analyzeContinuity} disabled={busy}>{aiTask === "analyze" ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />}{aiTask === "analyze" ? "검사 중…" : "AI 연속성 검사"}</Button></div></div>
               <div className="foreshadow-board">
-                {current.content.foreshadows.map((item) => <article key={item.id} className="foreshadow-card"><div className="foreshadow-top"><GitBranch /><Badge variant={item.status === "seeded" ? "default" : "outline"}>{item.status === "seeded" ? "설치됨" : item.status === "developing" ? "발전 중" : "예정"}</Badge></div><h3>{item.label}</h3><p>{item.note}</p><div className="payoff-line"><span>{item.seedEpisode}화 설치</span><i /><span>{item.payoffEpisode}화 회수</span></div></article>)}
+                {current.content.foreshadows.map((item) => <article key={item.id} className="foreshadow-card"><div className="foreshadow-top"><GitBranch /><Badge variant={item.status === "seeded" ? "default" : "outline"}>{item.status === "seeded" ? "설치됨" : item.status === "developing" ? "발전 중" : "예정"}</Badge></div><h3>{item.label}</h3><p>{item.note}</p><Button variant="outline" disabled={busy} onClick={() => setForeshadowDraft({ ...item })} aria-label={item.label + " 복선 편집"}><Pencil />편집</Button><div className="payoff-line"><span>{item.seedEpisode}화 설치</span><i /><span>{item.payoffEpisode}화 회수</span></div></article>)}
               </div>
               <article className="consistency-report">
                 <div className="report-score"><ShieldCheck /><strong>연속성 검사</strong><span>{current.content.issues?.length ? current.content.issues.length + "건" : "양호"}</span></div>
@@ -761,14 +780,14 @@ export default function StoryStudio() {
 
             <TabsContent value="ideas" className="tab-panel">
               <div className="idea-hero"><div><span>STORY WELL</span><h2>새 사건을 억지로 만들지 않습니다.</h2><p>인물의 욕망, 아직 갚지 않은 대가, 미회수 복선에서 다음 이야기를 길어 올립니다.</p></div><Button className="magic-button" disabled={busy} onClick={addIdea}><WandSparkles />새 소재 길어 올리기</Button></div>
-              <div className="idea-grid">{current.content.ideas.map((idea, index) => <article className="idea-card" key={idea.title + index}><div><Badge variant="outline">{idea.energy}</Badge><span>{idea.span}</span></div><h3>{idea.title}</h3><p>{idea.reason}</p><footer><span>원천</span><strong>{idea.source}</strong><button aria-label={idea.title + " 적용"} onClick={() => toast.success("소재를 다음 회차 후보로 표시했습니다.")}><ChevronRight /></button></footer></article>)}</div>
+              <div className="idea-grid">{current.content.ideas.map((idea, index) => <article className="idea-card" key={idea.title + index}><div><Badge variant="outline">{idea.energy}</Badge><span>{idea.span}</span></div><h3>{idea.title}</h3><p>{idea.reason}</p><footer><span>원천</span><strong>{idea.source}</strong><button aria-label={idea.title + " 적용"} disabled={busy} onClick={() => applyIdea(idea)}><ChevronRight /></button></footer></article>)}</div>
             </TabsContent>
 
             <TabsContent value="versions" className="tab-panel">
               <div className="section-title"><div><span>GENERATION HISTORY</span><h2>AI 생성 버전</h2></div><Badge variant="outline">최근 {versions.length}개</Badge></div>
               <div className="version-list">
                 {versions.length ? versions.map((version) => {
-                  const labels = { plan: "전체 설계", episode: "회차 원고", rewrite: "원고 다듬기", analyze: "연속성 검사" };
+                  const labels = { plan: "전체 설계", episode: "회차 원고", rewrite: "원고 다듬기", analyze: "연속성 검사", ideas: "소재 제안" };
                   return <article className="version-row" key={version.id}><span className="version-icon"><Clock3 /></span><div><Badge variant="outline">{labels[version.action]}</Badge><h3>{version.inputSummary || current.title}</h3><p>{version.model} · {new Date(version.createdAt).toLocaleString("ko-KR")}</p></div><Button variant="outline" disabled={busy} onClick={() => restoreVersion(version)}><RotateCcw />복원</Button></article>;
                 }) : <div className="version-empty"><Clock3 /><h3>아직 저장된 AI 버전이 없습니다</h3><p>AI로 설계하거나 원고를 생성하면 이전 결과가 자동으로 보관됩니다.</p></div>}
               </div>
@@ -791,13 +810,31 @@ export default function StoryStudio() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={Boolean(foreshadowDraft)} onOpenChange={open => { if (!open && !busy) setForeshadowDraft(null); }}>
+        <DialogContent className="project-dialog character-editor-dialog sm:max-w-2xl" showCloseButton={!busy}>
+          <form onSubmit={event => { event.preventDefault(); void saveForeshadow(); }}>
+            <DialogHeader><DialogTitle>복선 편집</DialogTitle><DialogDescription>설치할 단서와 회수할 의미, 회차를 정하고 저장하세요.</DialogDescription></DialogHeader>
+            {foreshadowDraft ? <fieldset className="dialog-fields" disabled={busy}>
+              <label><span>복선 이름</span><Input required value={foreshadowDraft.label} onChange={event => setForeshadowDraft({ ...foreshadowDraft, label: event.target.value })} /></label>
+              <div className="character-editor-grid">
+                <label><span>설치 회차</span><Input type="number" min={1} max={current.targetEpisodes} required value={foreshadowDraft.seedEpisode} onChange={event => setForeshadowDraft({ ...foreshadowDraft, seedEpisode: Number(event.target.value) })} /></label>
+                <label><span>회수 회차</span><Input type="number" min={foreshadowDraft.seedEpisode} max={current.targetEpisodes} required value={foreshadowDraft.payoffEpisode} onChange={event => setForeshadowDraft({ ...foreshadowDraft, payoffEpisode: Number(event.target.value) })} /></label>
+              </div>
+              <label><span>상태</span><NativeSelect value={foreshadowDraft.status} onChange={event => setForeshadowDraft({ ...foreshadowDraft, status: event.target.value as Foreshadow["status"] })}><NativeSelectOption value="planned">예정</NativeSelectOption><NativeSelectOption value="seeded">설치됨</NativeSelectOption><NativeSelectOption value="developing">발전 중</NativeSelectOption></NativeSelect></label>
+              <label><span>설치 장면과 회수 의미</span><Textarea value={foreshadowDraft.note} onChange={event => setForeshadowDraft({ ...foreshadowDraft, note: event.target.value })} /></label>
+            </fieldset> : null}
+            <DialogFooter><Button type="button" variant="ghost" disabled={busy} onClick={() => setForeshadowDraft(null)}>취소</Button><Button type="submit" disabled={busy}><Save />복선 저장</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {characterEditor ? <CharacterEditorDialog key={characterEditor.projectId + ":" + characterEditor.draft.id} draft={characterEditor.draft} originalName={characterEditor.original?.name} isNew={!characterEditor.original} busy={busy}
         onChange={draft => setCharacterEditor(editor => editor ? { ...editor, draft } : null)} onClose={() => setCharacterEditor(null)} onSave={saveCharacter} onDelete={deleteCharacter} /> : null}
 
       <Dialog open={dialogOpen} onOpenChange={open => { if (!busy) setDialogOpen(open); }}>
         <DialogContent className="project-dialog new-project-dialog sm:max-w-2xl" showCloseButton={!busy}>
           <form onSubmit={submitProject}>
-            <DialogHeader><div className="dialog-icon"><BookOpenText /></div><DialogTitle>새 이야기의 씨앗</DialogTitle><DialogDescription>임시 제목과 짧은 시놉시스만 입력하세요. 인물, 세계관, 전체 회차와 복선까지 한 번에 설계합니다.</DialogDescription></DialogHeader>
+            <DialogHeader><div className="dialog-icon"><BookOpenText /></div><DialogTitle>새 이야기의 씨앗</DialogTitle><DialogDescription>제목과 시놉시스를 바탕으로 AI가 인물, 세계관, 전체 회차와 복선을 새로 설계합니다. 회차가 많으면 몇 분 걸릴 수 있으며 진행 상황을 표시합니다.</DialogDescription></DialogHeader>
             <fieldset className="dialog-fields" disabled={busy}>
               <label><span>임시 제목</span><Input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="예: 달빛 아래 마지막 편집자" autoFocus /></label>
               <label><span>간단한 시놉시스</span><Textarea value={form.synopsis} onChange={(event) => setForm({ ...form, synopsis: event.target.value })} placeholder="주인공은 누구이며, 무엇을 원하고, 어떤 문제와 마주합니까?" className="min-h-32" /><small>{form.synopsis.length}자 · 5~20줄을 권장합니다</small></label>
@@ -832,14 +869,14 @@ export default function StoryStudio() {
               <a href="#manual-tips">8. 작업 팁</a>
             </nav>
             <div className="manual-content">
-              <section id="manual-start"><h3>1. 시작하기</h3><p><strong>새 작품 설계</strong>를 눌러 제목, 시놉시스, 장르, 톤, 목표 회차와 <strong>회차당 목표 글자 수</strong>를 입력합니다. 입력한 글자 수는 모든 회차의 초기 목표가 되며, 이후 회차별로 바꿀 수 있습니다. 짧은 시놉시스에는 주인공, 원하는 것, 가장 큰 장애물을 담으면 더 선명한 설계가 만들어집니다.</p></section>
+              <section id="manual-start"><h3>1. 시작하기</h3><p><strong>새 작품 설계</strong>를 눌러 제목, 시놉시스, 장르, 톤, 목표 회차와 <strong>회차당 목표 글자 수</strong>를 입력합니다. 입력한 글자 수는 모든 회차의 초기 목표가 되며, 이후 회차별로 바꿀 수 있습니다. 생성 버튼을 누르면 실제 AI 설계가 시작됩니다. 인물·세계관을 먼저 만든 뒤 최대 20회차씩 나누어 구성하므로 몇 분 걸릴 수 있습니다. 상단에서 진행 상황을 확인하거나 취소할 수 있습니다. 실패하거나 취소해도 제목과 시놉시스는 보관함에 남아 다시 설계할 수 있습니다. 짧은 시놉시스에는 주인공, 원하는 것, 가장 큰 장애물을 담으면 더 선명한 설계가 만들어집니다.</p></section>
               <section id="manual-plan"><h3>2. 전체 설계 읽기</h3><p>첫 화면의 <strong>전체 설계</strong> 탭에서 로그라인, 핵심 질문, 세계관 규칙과 12단계 이야기 지도를 확인합니다. 지도에서 원하는 구간을 누르면 해당 회차가 선택됩니다.</p><p><strong>캐릭터</strong> 탭의 <strong>편집</strong> 버튼에서 이름, 역할, 인물 유형, 욕망, 두려움, 비밀, 말투, 현재 상태와 색상을 수정하고 <strong>인물 저장</strong>으로 확정합니다. <strong>인물 추가</strong>도 같은 입력창을 사용하며, 편집창의 <strong>인물 삭제</strong>는 확인 후 카드만 삭제합니다. 취소하면 입력 전 상태를 유지하고, 기존 원고의 이름과 문장은 자동 변경하지 않습니다.</p><p>캐릭터 탭에서는 욕망·두려움·비밀·말투를, <strong>회차</strong> 탭에서는 각 화의 사건과 감정, 마지막 훅을 살펴볼 수 있습니다.</p></section>
               <section id="manual-write"><h3>3. 회차 집필하기</h3><p><strong>집필</strong> 탭으로 이동한 뒤 왼쪽의 회차 번호를 고릅니다. 상단의 ‘이번 화 목표’와 ‘마지막 훅’을 참고해 가운데 원고 칸에 직접 작성하세요. 원고는 저장하기 전에도 화면에서 계속 편집할 수 있습니다.</p><p><strong>목표 글자 수</strong>에 각 회차의 분량을 입력하세요. 회차 목록에서도 한 장씩 설정할 수 있으며, 집필 화면에서 현재 글자 수와 달성률을 확인합니다. 공백 포함 1~20,000자이며 비워 두면 기본 5,000자를 사용합니다. <strong>저장</strong> 또는 <strong>원고 저장</strong>을 누르면 목표도 함께 저장됩니다. AI 집필은 해당 목표를 참고하며, 전체 설계를 다시 만들거나 복원해도 회차별 목표를 유지합니다.</p><p>원고가 마무리되면 <strong>완료 표시</strong>를 누르고 <strong>원고 저장</strong>으로 확정합니다. 저장하면 해당 회차의 글자 수와 상태가 작품에 반영됩니다.</p></section>
-              <section id="manual-ai"><h3>4. AI 조력자 활용하기</h3><p>AI가 연결된 상태라면 <strong>AI로 전체 설계</strong>로 작품 구조를 다시 제안받거나, 집필 탭에서 <strong>AI로 이번 화 집필</strong>을 선택할 수 있습니다.</p><p>문단을 드래그한 뒤 수정 요청을 누르면 선택한 부분만 다듬습니다. 선택하지 않으면 회차 전체를 대상으로 합니다. 제안은 비교 창에서 확인하며, <strong>수정안 적용</strong>을 눌렀을 때만 원고에 반영됩니다.</p></section>
-              <section id="manual-continuity"><h3>5. 복선과 연속성 관리</h3><p><strong>복선</strong> 탭에서 설치 회차와 회수 회차를 확인하고, 필요한 복선을 추가합니다. <strong>AI 연속성 검사</strong>는 현재 원고와 설정을 비교해 시간선, 인물 설정, 미회수 단서를 점검합니다.</p><p>‘원고에서 확정된 기억’은 이후 집필 때 참조할 사실입니다. 중요한 설정은 직접 다시 확인하고, 작품의 기준과 다르면 원고 또는 설정을 수정하세요.</p></section>
+              <section id="manual-ai"><h3>4. AI 조력자 활용하기</h3><p>AI가 연결된 상태라면 <strong>AI로 전체 설계</strong>로 작품 구조를 다시 제안받거나, 집필 탭에서 <strong>AI로 이번 화 집필</strong>을 선택할 수 있습니다.</p><p>문단을 드래그한 뒤 수정 요청을 누르면 선택한 부분만 다듬습니다. 선택하지 않으면 회차 전체를 대상으로 합니다. 집필과 수정 중에는 생성 중인 문장이 화면에 나타납니다. 끝까지 완료된 결과만 저장됩니다. 제안은 비교 창에서 확인하며, <strong>수정안 적용</strong>을 눌렀을 때만 원고에 반영됩니다.</p></section>
+              <section id="manual-continuity"><h3>5. 복선과 연속성 관리</h3><p><strong>복선</strong> 탭에서 설치 회차와 회수 회차를 확인하고, 필요한 복선을 추가합니다. 복선 등록 또는 카드의 편집 버튼에서 이름·설치 회차·회수 회차·상태·메모를 입력하고 저장합니다. <strong>AI 연속성 검사</strong>는 현재 원고와 설정을 비교해 시간선, 인물 설정, 미회수 단서를 점검합니다.</p><p>‘원고에서 확정된 기억’은 이후 집필 때 참조할 사실입니다. 중요한 설정은 직접 다시 확인하고, 작품의 기준과 다르면 원고 또는 설정을 수정하세요.</p></section>
               <section id="manual-save"><h3>6. 저장과 내보내기</h3><p>작업 중에는 상단 <strong>저장</strong> 버튼으로 작품 설정과 원고를 보관합니다. 상단 <strong>내보내기</strong>에서는 현재 회차 또는 전체 원고를 TXT로, 작품 설계를 포함한 원고를 Markdown으로, 전체 백업을 JSON으로 받을 수 있습니다.</p><p>외부에 공유하거나 큰 수정 전에는 JSON 백업을 한 번 내려받아 두는 것을 권합니다.</p></section>
               <section id="manual-controls"><h3>7. 삭제·취소·다시 불러오기</h3><p>삭제할 작품을 보관함에서 선택하고 <strong>작품 삭제</strong>를 누르세요. 확인창에서 삭제하면 해당 작품의 설정, 원고와 AI 기록이 함께 삭제됩니다. 샘플 작품은 삭제 대상이 아닙니다.</p><p>AI 작업 중에는 화면 위쪽의 <strong>작업 취소</strong>로 요청을 중단할 수 있습니다. 취소한 결과는 원고에 적용되지 않습니다. 다시 시도하려면 원하는 AI 작업 버튼을 누르세요.</p><p><strong>다시 불러오기</strong>는 AI 작업을 취소하고 마지막으로 저장된 작품을 불러옵니다. 저장하지 않은 변경사항이 있으면 먼저 확인하며, 불러오기에 실패하면 현재 원고를 유지합니다.</p></section>
-              <section id="manual-tips"><h3>8. 매끄러운 작업을 위한 팁</h3><ul><li>새 회차를 쓰기 전, 이전 화의 마지막 훅과 인물의 현재 상태를 먼저 확인하세요.</li><li>AI 결과는 초안으로 보고, 작품의 목소리와 설정에 맞게 직접 다듬으세요.</li><li>큰 변경 뒤에는 저장하고 연속성 검사를 실행해 설정 충돌을 일찍 찾으세요.</li></ul></section>
+              <section id="manual-tips"><h3>8. 매끄러운 작업을 위한 팁</h3><ul><li>소재 우물의 새 소재 버튼은 현재 작품으로 AI 제안을 만듭니다. 소재 카드의 화살표를 누르면 선택된 회차의 사건에 후보로 저장되어 집필 시 참고됩니다.</li><li>새 회차를 쓰기 전, 이전 화의 마지막 훅과 인물의 현재 상태를 먼저 확인하세요.</li><li>AI 결과는 초안으로 보고, 작품의 목소리와 설정에 맞게 직접 다듬으세요.</li><li>큰 변경 뒤에는 저장하고 연속성 검사를 실행해 설정 충돌을 일찍 찾으세요.</li></ul></section>
             </div>
           </div>
           <DialogFooter><Button onClick={() => setManualOpen(false)}><Check />매뉴얼 닫기</Button></DialogFooter>
