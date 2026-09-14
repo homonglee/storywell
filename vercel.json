@@ -8,5 +8,8 @@
     "app/api/ai/generate/route.ts": {
       "maxDuration": 300
     }
+  },
+  "git": {
+    "deploymentEnabled": false
   }
 }
