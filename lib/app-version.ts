@@ -1,4 +1,4 @@
 // Updated automatically by scripts/prepare-release.mjs before production builds.
-export const APP_VERSION = "2.02";
+export const APP_VERSION = "2.10";
 export const APP_NAME = "StoryWell Ver " + APP_VERSION;
 export const APP_RELEASE_TAG = "v" + APP_VERSION;
