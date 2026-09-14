@@ -1,4 +1,5 @@
 import { getTargetCharacters, isValidTargetCharacters } from "@/lib/episode-target";
+import type { StoryReference } from "@/lib/story-references";
 
 export type Character = {
   id: string;
@@ -69,6 +70,7 @@ export type EpisodeDraft = {
 };
 
 export type StoryContent = {
+  references?: StoryReference[];
   logline: string;
   theme: string;
   worldRule: string;
@@ -103,7 +105,7 @@ export type StoryProject = {
 export type ProjectInput = Pick<
   StoryProject,
   "title" | "synopsis" | "genre" | "tone" | "targetEpisodes"
-> & { targetCharacters?: number };
+> & { targetCharacters?: number; references?: StoryReference[] };
 
 const stageNames = [
   "낯선 균열",

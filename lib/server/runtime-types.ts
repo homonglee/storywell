@@ -11,6 +11,7 @@ export interface StoryDatabase {
 }
 export interface RuntimeBindings {
   readonly DB?: StoryDatabase;
+  readonly BUCKET?: R2Bucket;
   readonly OPENAI_API_KEY?: string;
   readonly OPENAI_MODEL?: string;
   readonly IS_VERCEL: boolean;

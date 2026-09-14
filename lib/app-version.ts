@@ -1,4 +1,4 @@
-// Increase for each released feature/fix commit; tag that commit with v<APP_VERSION>.
-export const APP_VERSION = "2.01";
+// Updated automatically by scripts/prepare-release.mjs before production builds.
+export const APP_VERSION = "2.02";
 export const APP_NAME = "StoryWell Ver " + APP_VERSION;
 export const APP_RELEASE_TAG = "v" + APP_VERSION;

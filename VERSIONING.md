@@ -1,9 +1,9 @@
 # StoryWell release versions
 
 - Display format: StoryWell Ver x.xx. The shared source of truth is lib/app-version.ts.
-- This release is 2.01; its Git tag is v2.01. Each feature/fix release increments the last two digits (2.01 → 2.02). Documentation-only commits keep the product version.
-- Commit the version with the implementation, run the required checks, and tag that exact commit. Push the release commit and tag to GitHub.
-- Publish the same commit to Sites and Vercel. Do not reuse a release tag for different source.
+- Before every production build, scripts/run-framework.mjs calls prepareRelease(). A changed application-code fingerprint increments the version (2.01 → 2.02; 2.99 → 3.00). Unchanged rebuilds and documentation-only changes keep the version.
+- Commit the generated lib/app-version.ts and release-state.json with the implementation after checks and the production build. Publish the archive from that same commit. If code changes again, rebuild first so the version and artifact remain aligned.
+- Per the user's 2026-09-14 instruction, do not deploy to Vercel or push to GitHub branches that trigger Vercel without a separate explicit instruction. Publish only to the existing Sites source repository and Site, preserving its audience.
 - The workspace header, login header, browser title and setup screen use the shared version.
 - Find the exact source with git show v2.01. Sites publication counters are hosting history and are separate from the product release number.
 

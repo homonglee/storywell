@@ -41,7 +41,7 @@ export function mergeAIPlan(base: StoryContent, result: Partial<StoryContent>): 
     }),
     foreshadows: (result.foreshadows ?? []).map(item => ({ ...item, id: "foreshadow-" + crypto.randomUUID() })),
     ideas: result.ideas ?? [], manuscript: base.manuscript, episodeDrafts: base.episodeDrafts,
-    memories: base.memories, issues: base.issues, currentSummary: base.currentSummary,
+    memories: base.memories, issues: base.issues, currentSummary: base.currentSummary, references: base.references,
   };
 }
 

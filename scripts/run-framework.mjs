@@ -1,9 +1,14 @@
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { readExecutionProfile } from "./execution-profile.mjs";
+import { prepareRelease } from "./prepare-release.mjs";
 
 const [command, ...args] = process.argv.slice(2);
 if (!["dev", "build"].includes(command)) throw new Error("Expected dev or build.");
+if (command === "build") {
+  const release = await prepareRelease();
+  console.log("StoryWell release " + release.version + (release.changed ? " (updated for source changes)" : " (unchanged source)"));
+}
 const managedLinux = readExecutionProfile() === "managed-linux";
 
 if (managedLinux && command === "build") {

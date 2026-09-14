@@ -189,6 +189,45 @@ button { cursor: pointer; }
 .workspace-head h1 { margin: 0; font-family: "Iowan Old Style", "Noto Serif KR", Georgia, serif; font-size: clamp(27px, 3vw, 42px); font-weight: 650; letter-spacing: -0.045em; }
 .workspace-head p { max-width: 820px; margin: 10px 0 0; color: #8e95a1; font-size: 14px; line-height: 1.65; }
 .magic-button { flex: none; color: #171109; background: linear-gradient(135deg, #ffd177, #e3a035); box-shadow: 0 8px 28px rgba(227, 160, 53, 0.13); }
+.workspace-head-actions { display: flex; flex-direction: column; align-items: stretch; gap: 10px; flex: 0 0 230px; max-width: 100%; }
+.current-writing-target { max-width: 230px; overflow-wrap: anywhere; color: #b9c2d0; font-size: 14px; line-height: 1.5; }
+.reference-dialog { max-height: 90vh; max-height: 90dvh; overflow-y: auto; overscroll-behavior: contain; }
+.reference-editor { display: grid; gap: 16px; min-width: 0; padding: 18px 0; }
+.reference-heading, .reference-heading strong, .reference-card-footer, .reference-enabled { display: flex; align-items: center; gap: 8px; }
+.reference-heading { justify-content: space-between; }
+.reference-heading svg { width: 18px; height: 18px; }
+.reference-heading > span, .reference-help { color: #a8b3c3; font-size: 14px; line-height: 1.65; }
+.reference-help { margin: 0; }
+.reference-list { display: grid; gap: 10px; }
+.reference-card { border: 1px solid #384252; border-radius: 10px; background: #19212d; min-width: 0; }
+.reference-card summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 14px; cursor: pointer; list-style: none; }
+.reference-card summary::before { content: "+"; color: #f3c372; }
+.reference-card[open] summary::before { content: "−"; }
+.reference-card summary > span { color: #f3c372; font-size: 14px; }
+.reference-card summary > strong { flex: 1; min-width: 80px; overflow-wrap: anywhere; }
+.reference-card summary > small { color: #a8b3c3; font-size: 13px; }
+.reference-card-body, .reference-compose { display: grid; gap: 14px; min-width: 0; }
+.reference-card-body { padding: 0 14px 14px; }
+.reference-editor label:not(.reference-enabled) { display: grid; gap: 7px; min-width: 0; }
+.reference-editor label > span { font-size: 14px; color: #d1d8e4; }
+.reference-editor label small { color: #9faec2; font-size: 13px; }
+.reference-editor textarea { min-height: 110px; resize: vertical; }
+.reference-editor input:not([type="file"]), .reference-editor textarea, .reference-editor select { font-size: 16px; min-width: 0; width: 100%; }
+.reference-compose-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; }
+.reference-import-row { display: flex; align-items: center; gap: 8px; }
+.reference-import-row input { flex: 1; }
+.reference-import-row button { flex: none; }
+.reference-card-footer { flex-wrap: wrap; font-size: 13px; color: #a8b3c3; overflow-wrap: anywhere; }
+.reference-card-footer a { color: #f3c372; text-decoration: underline; }
+.reference-enabled { font-size: 14px; min-height: 36px; }
+.reference-error { color: #ffaaaa; font-size: 14px; line-height: 1.6; }
+.reference-progress { display: flex; align-items: center; gap: 8px; color: #f3c372; font-size: 14px; }
+.reference-progress svg { flex: none; width: 18px; }
+.new-project-references { margin-bottom: 22px; border-top: 1px solid #384252; border-bottom: 1px solid #384252; }
+.new-project-references > summary { padding: 16px 0; cursor: pointer; font-size: 16px; }
+.new-project-references > summary span { color: #a8b3c3; font-size: 14px; }
+@media (max-width: 800px) { .workspace-head-actions { margin-top: 18px; } .workspace-head .workspace-head-actions .magic-button { margin-top: 0; min-height: 44px; } .current-writing-target { max-width: 100%; } }
+@media (max-width: 520px) { .reference-compose-row { grid-template-columns: minmax(0, 1fr); } .reference-import-row { flex-wrap: wrap; } .reference-import-row input { flex-basis: 100%; } .reference-editor button { min-height: 44px; } }
 
 .metric-row { display: grid; grid-template-columns: 160px 160px 160px minmax(260px, 1fr); gap: 12px; max-width: 1420px; margin: 28px auto 0; }
 .metric-card { display: flex; align-items: center; gap: 12px; min-height: 78px; padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: rgba(24, 31, 43, 0.88); }
