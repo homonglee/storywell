@@ -80,7 +80,7 @@ test('native voices keep non-enumerable browser properties and their original ob
 test('writing workspace exposes a complete manuscript reader without storing audio', () => {
   const component = fs.readFileSync(path.join(root, 'components/manuscript-reader.tsx'), 'utf8');
   const studio = fs.readFileSync(path.join(root, 'app/studio.tsx'), 'utf8');
-  for (const label of ['읽어주기', '선택한 부분 듣기', '일시정지', '정지', '이전', '다음', '음성 새로고침', '한국어 남성', '남성 저음 톤']) {
+  for (const label of ['읽어주기', '선택한 위치부터 듣기', '일시정지', '정지', '이전', '다음', '음성 새로고침', '한국어 남성', '낮은 음높이']) {
     assert.match(component, new RegExp(label));
   }
   assert.match(component, /speechSynthesis/);
@@ -88,4 +88,55 @@ test('writing workspace exposes a complete manuscript reader without storing aud
   assert.doesNotMatch(component, /fetch\s*\(/);
   assert.match(studio, /<ManuscriptReader[\s\S]*text=\{activeManuscript\}/);
   assert.match(studio, /textareaRef=\{manuscriptRef\}/);
+});
+
+
+test('Heami is identified as female rather than an unspecified or male voice', () => {
+  const { inferVoiceGender } = loadTS('lib/manuscript-reader.ts');
+  assert.equal(inferVoiceGender(voice('Microsoft Heami - Korean (Korean)')), 'female');
+});
+
+test('reading from a selected start includes all subsequent sentences with original offsets', () => {
+  const { readingChunksFrom } = loadTS('lib/manuscript-reader.ts');
+  const text = '건너뛸 첫 문장. 선택한 두 번째 문장. 선택 밖의 세 번째 문장. 마지막 문장.';
+  const start = text.indexOf('선택한');
+  const result = readingChunksFrom(text, start);
+  assert.equal(result[0].start, start);
+  assert.equal(result.at(-1).end, text.length);
+  assert.equal(result.at(-1).text, '마지막 문장.');
+  for (const chunk of result) assert.equal(text.slice(chunk.start, chunk.end), chunk.text);
+  assert.ok(result.every(chunk => chunk.start >= start));
+});
+
+test('bookmarks restore an offset per work and episode without storing manuscript text', () => {
+  const { bookmarkKey, makeReaderBookmark, restoreReaderBookmark } = loadTS('lib/manuscript-reader.ts');
+  const text = '처음 문장. 중간 문장. 마지막 문장.';
+  const storage = new Map();
+  storage.set(bookmarkKey('work1:1'), JSON.stringify(makeReaderBookmark(text, 7)));
+  storage.set(bookmarkKey('work1:2'), JSON.stringify(makeReaderBookmark(text, 14)));
+  assert.notEqual(bookmarkKey('work1:1'), bookmarkKey('work2:1'));
+  assert.equal(restoreReaderBookmark(text, JSON.parse(storage.get(bookmarkKey('work1:1')))).offset, 7);
+  assert.equal(restoreReaderBookmark(text, JSON.parse(storage.get(bookmarkKey('work1:2')))).offset, 14);
+  assert.ok(!storage.get(bookmarkKey('work1:1')).includes('처음 문장'));
+});
+
+test('changed manuscripts and corrupted or out of range bookmarks cannot restore stale positions', () => {
+  const { makeReaderBookmark, restoreReaderBookmark } = loadTS('lib/manuscript-reader.ts');
+  const text = '첫 문장. 다음 문장.';
+  const bookmark = makeReaderBookmark(text, 6);
+  assert.equal(restoreReaderBookmark('새' + text.slice(1), bookmark), undefined);
+  for (const value of [null, {}, {...bookmark, offset: -1}, {...bookmark, offset: 10000}, {...bookmark, offset: NaN}, {...bookmark, version: 2}, {...bookmark, completed: 'yes'}]) {
+    assert.equal(restoreReaderBookmark(text, value), undefined);
+  }
+  const completed = makeReaderBookmark(text, text.length, true);
+  assert.equal(restoreReaderBookmark(text, completed).completed, true);
+});
+
+test('cursor offsets never split surrogate pairs or read beyond the manuscript', () => {
+  const { safeReadingOffset, readingChunksFrom } = loadTS('lib/manuscript-reader.ts');
+  const text = '앞😀뒤. 끝.';
+  assert.equal(safeReadingOffset(text, 2), 1);
+  assert.equal(readingChunksFrom(text, 2)[0].text, '😀뒤.');
+  assert.deepEqual(readingChunksFrom(text, text.length), []);
+  assert.equal(safeReadingOffset(text, Infinity), 0);
 });
