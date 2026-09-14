@@ -118,6 +118,8 @@ button { cursor: pointer; }
 .header-actions .model-selector { min-width: 0; max-width: 210px; }
 .manual-button { border-color: rgba(233, 170, 66, 0.35); color: #f3c778; background: rgba(233, 170, 66, 0.08); }
 .manual-button:hover { border-color: rgba(255, 198, 103, 0.7); color: #ffe0a2; background: rgba(233, 170, 66, 0.15); }
+.reader-button { border-color: rgba(115, 197, 216, 0.38); color: #9edce9; background: rgba(115, 197, 216, 0.08); }
+.reader-button:hover { border-color: rgba(158, 220, 233, 0.75); color: #d5f7ff; background: rgba(115, 197, 216, 0.15); }
 .ai-state { display: flex; align-items: center; gap: 6px; padding: 6px 9px; border: 1px solid rgba(233, 170, 66, 0.17); border-radius: 8px; color: #9d835a; background: rgba(233, 170, 66, 0.05); font-size: 11px; }
 .ai-state svg { width: 13px; }
 .ai-state.ready { border-color: rgba(85, 201, 149, 0.17); color: #77bd99; background: rgba(85, 201, 149, 0.05); }
@@ -326,6 +328,8 @@ button { cursor: pointer; }
 .manuscript-editor { min-height: 365px; resize: vertical; border: 0; padding: 22px 8px; color: #dedbd4; background: transparent; box-shadow: none; font-family: "Iowan Old Style", "Noto Serif KR", Georgia, serif; font-size: 17px; line-height: 2.05; }
 .manuscript-editor:focus-visible { border: 0; box-shadow: none; }
 .manuscript-reader { margin: 4px 0 20px; padding: 16px; border: 1px solid #343d4c; border-radius: 13px; background: linear-gradient(135deg, #1b2330, #171c27); }
+.reader-dialog { width: min(820px, calc(100vw - 24px)); max-height: 90dvh; overflow-y: auto; padding: 18px; border-color: #394455; background: #111722; overscroll-behavior: contain; }
+.reader-dialog .manuscript-reader { margin: 0; }
 .reader-heading, .reader-heading > div, .reader-heading span, .reader-actions, .reader-settings, .reader-position { display: flex; align-items: center; }
 .reader-heading { justify-content: space-between; gap: 12px; }
 .reader-heading > div { gap: 10px; min-width: 0; }
@@ -493,7 +497,7 @@ button { cursor: pointer; }
   .brand-copy { min-width: 0; }
   .brand-copy strong { font-size: clamp(16px, 4.6vw, 20px); white-space: nowrap; }
   .brand-mark { width: 34px; height: 34px; }
-  .header-actions { display: grid; flex: 0 0 100%; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; min-width: 0; margin-left: 0; }
+  .header-actions { display: grid; flex: 0 0 100%; grid-template-columns: repeat(5, minmax(0, 1fr)); width: 100%; min-width: 0; margin-left: 0; }
   .header-actions > button { width: 100%; min-width: 0; height: 44px; padding: 0 8px; font-size: 14px; }
   .header-actions .model-selector { max-width: none; }
   .studio-shell { display: block; }
@@ -541,6 +545,8 @@ button { cursor: pointer; }
 
 @media (max-width: 520px) {
   .header-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .reader-button { grid-column: 1 / -1; }
+  .reader-dialog { width: calc(100vw - 16px); max-height: 90dvh; padding: 12px; }
   .workspace-head p { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
   .metric-row { grid-template-columns: repeat(3, 1fr); gap: 7px; }
   .metric-card { justify-content: center; text-align: center; }

@@ -90,6 +90,19 @@ test('writing workspace exposes a complete manuscript reader without storing aud
   assert.match(studio, /textareaRef=\{manuscriptRef\}/);
 });
 
+test('the sticky header opens the manuscript reader in an accessible popup instead of inline', () => {
+  const studio = fs.readFileSync(path.join(root, 'app/studio.tsx'), 'utf8');
+  const styles = fs.readFileSync(path.join(root, 'app/globals.css'), 'utf8');
+  const header = studio.slice(studio.indexOf('<header className="studio-header">'), studio.indexOf('</header>'));
+  const writingArea = studio.slice(studio.indexOf('<Textarea ref={manuscriptRef}'), studio.indexOf('<div className="manuscript-footer">'));
+
+  assert.match(header, /onClick=\{\(\) => setReaderOpen\(true\)\}[\s\S]*원고 듣기/);
+  assert.match(studio, /<Dialog open=\{readerOpen\} onOpenChange=\{setReaderOpen\}>[\s\S]*<DialogContent className="reader-dialog[^"]*"[\s\S]*<ManuscriptReader/);
+  assert.doesNotMatch(writingArea, /<ManuscriptReader/);
+  assert.match(styles, /\.studio-header\s*\{[\s\S]*position:\s*sticky/);
+  assert.match(styles, /\.reader-dialog\s*\{[\s\S]*max-height:\s*90dvh[\s\S]*overflow-y:\s*auto/);
+  assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.reader-button\s*\{[\s\S]*grid-column:\s*1\s*\/\s*-1/);
+});
 
 test('Heami is identified as female rather than an unspecified or male voice', () => {
   const { inferVoiceGender } = loadTS('lib/manuscript-reader.ts');
