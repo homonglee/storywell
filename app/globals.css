@@ -669,3 +669,21 @@ button { cursor: pointer; }
 .login-form button svg { width: 18px; height: 18px; }
 .login-error { color: #ff9c96; font-size: 13px; line-height: 1.6; margin: -6px 0 20px; }
 .login-help { color: var(--paper-muted); font-size: 12px; line-height: 1.8; text-align: center; margin: 20px 0 0; }
+
+/* Keep writing navigation reachable on long manuscripts and clear of phone safe areas. */
+.workspace.workspace-writing { padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)); }
+.writing-scroll-top {
+  position: fixed;
+  z-index: 30;
+  right: calc(16px + env(safe-area-inset-right, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  min-width: 112px;
+  height: 48px;
+  border: 1px solid rgba(255, 222, 163, 0.5);
+  border-radius: 999px;
+  color: #171109;
+  background: var(--gold);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  font-size: 14px;
+}
+.writing-scroll-top:hover { background: var(--gold-bright); }

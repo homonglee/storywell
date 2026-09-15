@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookMarked, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronRight, CircleAlert, Clock3, Download, FileText, GitBranch, Lightbulb, LoaderCircle, Menu, Pencil, Plus, RotateCcw, Save, Search, Square, Trash2, RefreshCw, ShieldCheck, Sparkles, Target, Users, Volume2, WandSparkles, X, Feather } from "lucide-react";
+import { ArrowUp, BookMarked, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronRight, CircleAlert, Clock3, Download, FileText, GitBranch, Lightbulb, LoaderCircle, Menu, Pencil, Plus, RotateCcw, Save, Search, Square, Trash2, RefreshCw, ShieldCheck, Sparkles, Target, Users, Volume2, WandSparkles, X, Feather } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -138,6 +138,11 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
   const [pendingRewrite, setPendingRewrite] = useState<PendingRewrite | null>(null);
   const [rewriteProposal, setRewriteProposal] = useState<RewriteProposal | null>(null);
   const manuscriptRef = useRef<HTMLTextAreaElement | null>(null);
+  const scrollToWritingTop = () => {
+    const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth";
+    manuscriptRef.current?.scrollTo({ top: 0, behavior });
+    window.scrollTo({ top: 0, behavior });
+  };
   const [characterEditor, setCharacterEditor] = useState<{ projectId: string; original: Character | null; draft: Character } | null>(null);
   const characterEditorDirty = Boolean(characterEditor && JSON.stringify(characterEditor.original) !== JSON.stringify(characterEditor.draft));
 
@@ -734,7 +739,7 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
         </aside>
         {mobileOpen ? <button className="sidebar-backdrop" aria-label="작품 목록 닫기" onClick={() => setMobileOpen(false)} /> : null}
 
-        <section className="workspace">
+        <section className={"workspace" + (activeTab === "writing" ? " workspace-writing" : "")}>
           <div className="workspace-controls">
             <div className="task-status">
               {aiTask ? <><LoaderCircle className="animate-spin" /><span role="status">{aiActionLabels[aiTask]} · {aiProgress || "진행 중"} · {aiElapsed}초 경과</span><Button variant="outline" className="cancel-task-button" disabled={saving} onClick={() => cancelAI()}><Square />작업 취소</Button></> : <span role="status">{reloading ? "작품을 다시 불러오는 중…" : saving ? "원고를 저장하는 중…" : hasUnsavedChanges ? "저장하지 않은 변경사항이 있습니다" : savedCurrent ? "저장된 작품을 편집하고 있습니다" : "샘플 작품을 살펴보고 있습니다"}</span>}
@@ -871,6 +876,12 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
         </section>
       </div>
 
+      {activeTab === "writing" ? (
+        <Button type="button" className="writing-scroll-top" onClick={scrollToWritingTop} aria-label="집필 화면 맨 위로 이동">
+          <ArrowUp aria-hidden="true" />맨 위로
+        </Button>
+      ) : null}
+
       <Dialog open={deleteOpen} onOpenChange={(open) => { if (!deleting) setDeleteOpen(open); }}>
         <DialogContent className="project-dialog sm:max-w-lg" onInteractOutside={(event) => { if (deleting) event.preventDefault(); }}>
           <DialogHeader><DialogTitle>이 작품을 삭제할까요?</DialogTitle><DialogDescription><strong>{current.title}</strong>의 작품 설정, 모든 회차 원고와 AI 생성 기록을 함께 삭제합니다. 삭제한 내용은 복구할 수 없습니다.</DialogDescription></DialogHeader>
@@ -955,7 +966,7 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
             <div className="manual-content">
               <section id="manual-start"><h3>1. 시작하기</h3><p><strong>새 작품 설계</strong>를 눌러 제목, 시놉시스, 장르, 톤, 목표 회차와 <strong>회차당 목표 글자 수</strong>를 입력합니다. 입력한 글자 수는 모든 회차의 초기 목표가 되며, 이후 회차별로 바꿀 수 있습니다. 생성 버튼을 누르면 실제 AI 설계가 시작됩니다. 인물·세계관을 먼저 만든 뒤 최대 20회차씩 나누어 구성하므로 몇 분 걸릴 수 있습니다. 상단에서 진행 상황을 확인하거나 취소할 수 있습니다. 실패하거나 취소해도 제목과 시놉시스는 보관함에 남아 다시 설계할 수 있습니다. 짧은 시놉시스에는 주인공, 원하는 것, 가장 큰 장애물을 담으면 더 선명한 설계가 만들어집니다.</p></section>
               <section id="manual-plan"><h3>2. 전체 설계 읽기</h3><p>첫 화면의 <strong>전체 설계</strong> 탭에서 로그라인, 핵심 질문, 세계관 규칙과 12단계 이야기 지도를 확인합니다. 지도에서 원하는 구간을 누르면 해당 회차가 선택됩니다.</p><p><strong>캐릭터</strong> 탭의 <strong>편집</strong> 버튼에서 이름, 역할, 인물 유형, 욕망, 두려움, 비밀, 말투, 현재 상태와 색상을 수정하고 <strong>인물 저장</strong>으로 확정합니다. <strong>인물 추가</strong>도 같은 입력창을 사용하며, 편집창의 <strong>인물 삭제</strong>는 확인 후 카드만 삭제합니다. 취소하면 입력 전 상태를 유지하고, 기존 원고의 이름과 문장은 자동 변경하지 않습니다.</p><p>캐릭터 탭에서는 욕망·두려움·비밀·말투를, <strong>회차</strong> 탭에서는 각 화의 사건과 감정, 마지막 훅을 살펴볼 수 있습니다.</p></section>
-              <section id="manual-write"><h3>3. 회차 집필하기</h3><p><strong>집필</strong> 탭으로 이동한 뒤 왼쪽의 회차 번호를 고릅니다. 상단의 ‘이번 화 목표’와 ‘마지막 훅’을 참고해 가운데 원고 칸에 직접 작성하세요. 원고는 저장하기 전에도 화면에서 계속 편집할 수 있습니다.</p><p><strong>목표 글자 수</strong>에 각 회차의 분량을 입력하세요. 회차 목록에서도 한 장씩 설정할 수 있으며, 집필 화면에서 현재 글자 수와 달성률을 확인합니다. 공백 포함 1~20,000자이며 비워 두면 기본 5,000자를 사용합니다. <strong>저장</strong> 또는 <strong>원고 저장</strong>을 누르면 목표도 함께 저장됩니다. AI 집필은 해당 목표를 참고하며, 전체 설계를 다시 만들거나 복원해도 회차별 목표를 유지합니다.</p><p>상단에 고정된 <strong>원고 듣기</strong> 버튼을 누르면 낭독 도구가 팝업으로 열립니다. 회차 전체를 읽거나 원고 입력창에 커서를 놓거나 문장을 선택한 뒤 <strong>선택한 위치부터 듣기</strong>를 누르면 그 위치부터 회차 끝까지 들을 수 있습니다. 설치된 한국어 남성 음성은 목록 위쪽에 표시되며, Microsoft Heami는 여성 음성입니다. <strong>낮은 음높이</strong>는 음높이만 조절하며 성별을 바꾸지 않습니다. 목소리·속도·톤과 작품·회차별 마지막 듣기 위치를 이 브라우저에 기억합니다. 다른 화면에 다녀오거나 새로고침한 뒤 <strong>이어 듣기</strong>를 누르세요. 원고가 바뀌면 위치를 다시 선택합니다. 듣기 기능은 원고나 음원을 별도로 업로드하지 않습니다. 온라인 음성은 브라우저·운영체제의 음성 제공업체로 원고를 전송할 수 있습니다.</p><p>원고가 마무리되면 <strong>완료 표시</strong>를 누르고 <strong>원고 저장</strong>으로 확정합니다. 저장하면 해당 회차의 글자 수와 상태가 작품에 반영됩니다.</p></section>
+              <section id="manual-write"><h3>3. 회차 집필하기</h3><p><strong>집필</strong> 탭으로 이동한 뒤 왼쪽의 회차 번호를 고릅니다. 상단의 ‘이번 화 목표’와 ‘마지막 훅’을 참고해 가운데 원고 칸에 직접 작성하세요. 원고는 저장하기 전에도 화면에서 계속 편집할 수 있습니다.</p><p><strong>목표 글자 수</strong>에 각 회차의 분량을 입력하세요. 회차 목록에서도 한 장씩 설정할 수 있으며, 집필 화면에서 현재 글자 수와 달성률을 확인합니다. 공백 포함 1~20,000자이며 비워 두면 기본 5,000자를 사용합니다. <strong>저장</strong> 또는 <strong>원고 저장</strong>을 누르면 목표도 함께 저장됩니다. AI 집필은 해당 목표를 참고하며, 전체 설계를 다시 만들거나 복원해도 회차별 목표를 유지합니다.</p><p>상단에 고정된 <strong>원고 듣기</strong> 버튼을 누르면 낭독 도구가 팝업으로 열립니다. 회차 전체를 읽거나 원고 입력창에 커서를 놓거나 문장을 선택한 뒤 <strong>선택한 위치부터 듣기</strong>를 누르면 그 위치부터 회차 끝까지 들을 수 있습니다. 설치된 한국어 남성 음성은 목록 위쪽에 표시되며, Microsoft Heami는 여성 음성입니다. <strong>낮은 음높이</strong>는 음높이만 조절하며 성별을 바꾸지 않습니다. 목소리·속도·톤과 작품·회차별 마지막 듣기 위치를 이 브라우저에 기억합니다. 다른 화면에 다녀오거나 새로고침한 뒤 <strong>이어 듣기</strong>를 누르세요. 원고가 바뀌면 위치를 다시 선택합니다. 듣기 기능은 원고나 음원을 별도로 업로드하지 않습니다. 온라인 음성은 브라우저·운영체제의 음성 제공업체로 원고를 전송할 수 있습니다.</p><p>긴 원고를 읽다가 처음으로 돌아가려면 화면 오른쪽 아래의 <strong>맨 위로</strong> 버튼을 누르세요. 집필 화면과 원고 입력창의 스크롤을 함께 맨 위로 이동합니다.</p><p>원고가 마무리되면 <strong>완료 표시</strong>를 누르고 <strong>원고 저장</strong>으로 확정합니다. 저장하면 해당 회차의 글자 수와 상태가 작품에 반영됩니다.</p></section>
               <section id="manual-ai"><h3>4. AI 조력자 활용하기</h3><p>AI가 연결된 상태라면 <strong>AI 전체설계</strong>로 작품 구조를 다시 제안받거나, 집필 탭에서 <strong>AI로 이번 화 집필</strong>을 선택할 수 있습니다.</p><p>문단을 드래그한 뒤 수정 요청을 누르면 선택한 부분만 다듬습니다. 선택하지 않으면 회차 전체를 대상으로 합니다. 확인창에서 수정 범위와 요청을 확인한 뒤 시작하세요. 집필과 수정 중에는 생성 중인 문장이 화면에 나타납니다. 진행 중인 수정은 집필 조력자의 <strong>작업 중단</strong>으로 멈출 수 있습니다. 끝까지 완료된 결과만 저장됩니다. 제안은 비교 창에서 확인하며, <strong>수정안 적용</strong>을 눌렀을 때만 원고에 반영됩니다.</p></section>
               <section id="manual-continuity"><h3>5. 복선과 연속성 관리</h3><p><strong>복선</strong> 탭에서 설치 회차와 회수 회차를 확인하고, 필요한 복선을 추가합니다. 복선 등록 또는 카드의 편집 버튼에서 이름·설치 회차·회수 회차·상태·메모를 입력하고 저장합니다. <strong>AI 연속성 검사</strong>는 현재 원고와 설정을 비교해 시간선, 인물 설정, 미회수 단서를 점검합니다.</p><p>‘원고에서 확정된 기억’은 이후 집필 때 참조할 사실입니다. 중요한 설정은 직접 다시 확인하고, 작품의 기준과 다르면 원고 또는 설정을 수정하세요.</p></section>
               <section id="manual-save"><h3>6. 저장과 내보내기</h3><p>작업 중에는 상단 <strong>저장</strong> 버튼으로 작품 설정과 원고를 보관합니다. 상단 <strong>내보내기</strong>에서는 현재 회차 또는 전체 원고를 TXT로, 작품 설계를 포함한 원고를 Markdown으로, 전체 백업을 JSON으로 받을 수 있습니다.</p><p>외부에 공유하거나 큰 수정 전에는 JSON 백업을 한 번 내려받아 두는 것을 권합니다.</p></section>
