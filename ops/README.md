@@ -34,3 +34,7 @@ Git 원격 이름: `github` = GitHub 소스 저장소, `origin` = Sites 전용 �
 배포마다 기존 회귀 검사 59개, TypeScript 검사, Sites 빌드를 실행한다. 팝업의 실제 터치 조작과 휴대폰 스피커 출력은 별도 기기 검증이다.
 
 공식 근거: https://learn.chatgpt.com/docs/auth 및 https://learn.chatgpt.com/docs/non-interactive-mode . RPC 입력 형식은 현재 설치된 `codex app-server generate-json-schema --experimental` 출력으로 확인했다.
+
+## 파일 전송 호환성
+
+현재 Codex App Server 직접 호출은 파일 경로를 업로드 객체로 변환하지 않는 경우가 있다. 이 정확한 형식 오류가 발생하면 공식 source-only 저장 방식으로 전환하고 Sites 서버가 업로드된 동일 커밋을 빌드하도록 한다. 로컬 검사·빌드는 먼저 완료하며, 다른 권한·인증·검사 오류에는 이 대체 경로를 적용하지 않는다.

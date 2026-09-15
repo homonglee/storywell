@@ -14,3 +14,5 @@
 - 실제 휴대폰 음성 출력은 이번 PC 검증 범위에 포함하지 않았다. 최종 자동 배포 실행 결과는 `git notes --ref=storywell-deployments show HEAD`로 확인한다.
 
 - 이 PC의 PowerShell 스크립트 실행 정책을 유지하기 위해 Python 명령을 직접 사용한다. 전역 실행 정책은 변경하지 않았다.
+
+- 직접 MCP 호출의 파일 업로드 변환 누락을 확인했다. 정확한 archive 타입 불일치에 한해 Sites의 공식 원격 빌드 방식으로 전환한다. 그 외 오류는 중단한다.

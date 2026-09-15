@@ -333,7 +333,18 @@ def main():
                 archive = package(root, sha)
                 if clean_head() != sha:
                     raise RuntimeError('Source changed while packaging.')
-                version = client.tool('save_site_version', commit_sha=sha, archive=str(archive))
+                try:
+                    version = client.tool('save_site_version', commit_sha=sha, archive=str(archive))
+                except RuntimeError as error:
+                    # Some App Server builds expose file paths in the tool schema but
+                    # do not implement the desktop file-upload adapter on this RPC.
+                    # The supported source-only flow lets Sites build this exact commit.
+                    detail = str(error)
+                    if not ('archive [type]' in detail and "got str" in detail
+                            and "Expected type ['object']" in detail):
+                        raise
+                    say('Local archive upload is unavailable in this client; using the Sites remote build fallback.')
+                    version = client.tool('save_site_version', commit_sha=sha)
             deployment = None
             if version.get('deployment_id'):
                 existing = client.tool('get_deployment_status', deployment_id=version['deployment_id'])
