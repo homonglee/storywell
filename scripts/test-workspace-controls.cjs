@@ -276,6 +276,25 @@ test('new story length defaults apply to every episode and reject invalid values
   for (const targetCharacters of [0, -1, 1.5, 20001, NaN]) assert.throws(() => buildStory({ ...input, targetCharacters }), /회차당 목표 글자 수/);
 });
 
+test('total manuscript characters sum every episode draft without duplicating the legacy first manuscript', () => {
+  const { getTotalManuscriptCharacters } = loadTS('lib/manuscript-stats.ts');
+  assert.equal(getTotalManuscriptCharacters({
+    manuscript: '중복 원고',
+    episodeDrafts: {
+      '1': { episodeNumber: 1, title: '1화', body: '첫 원고', status: 'done', revision: 1, updatedAt: '' },
+      '2': { episodeNumber: 2, title: '2화', body: '두 번째 원고', status: 'draft', revision: 1, updatedAt: '' },
+    },
+  }), '첫 원고'.length + '두 번째 원고'.length);
+  assert.equal(getTotalManuscriptCharacters({ manuscript: '이전 형식 원고' }), '이전 형식 원고'.length);
+  assert.equal(getTotalManuscriptCharacters({
+    manuscript: '첫 화 이전 형식',
+    episodeDrafts: {
+      '2': { episodeNumber: 2, title: '2화', body: '둘째 화', status: 'draft', revision: 1, updatedAt: '' },
+    },
+  }), '첫 화 이전 형식'.length + '둘째 화'.length);
+  assert.equal(getTotalManuscriptCharacters({ manuscript: '', episodeDrafts: {} }), 0);
+});
+
 test('character edits and deletion select stable IDs and preserve other story data', () => {
   const { createCharacterDraft, saveCharacterInProject, removeCharacterFromProject } = loadTS('lib/character-editor.ts');
   const first = { ...createCharacterDraft(), name: '같은 이름' };

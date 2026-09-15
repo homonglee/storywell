@@ -25,6 +25,7 @@ import { CharacterEditorDialog } from "@/components/character-editor-dialog";
 import { ManuscriptReader } from "@/components/manuscript-reader";
 import { createCharacterDraft, saveCharacterInProject, removeCharacterFromProject } from "@/lib/character-editor";
 import { DEFAULT_TARGET_CHARACTERS, MAX_TARGET_CHARACTERS, getContentTargetError, getTargetCharacters, setEpisodeTarget, withEpisodeTargets } from "@/lib/episode-target";
+import { getTotalManuscriptCharacters } from "@/lib/manuscript-stats";
 
 const genres = ["현대 판타지", "로맨스 판타지", "미스터리", "무협", "SF", "로맨스", "드라마"];
 const tones = ["빠르고 통쾌한", "서늘하지만 따뜻한", "유쾌하고 경쾌한", "묵직하고 서정적인", "긴장감 있고 어두운"];
@@ -631,6 +632,7 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
   const totalEpisodePages = Math.ceil(current.content.episodes.length / 12);
   const drafted = current.content.episodes.filter((item) => item.status !== "planned").length;
   const completion = Math.round((drafted / current.content.episodes.length) * 100);
+  const totalManuscriptCharacters = getTotalManuscriptCharacters(current.content);
   const exportProject = (format: "txt" | "md" | "json", scope: "episode" | "all" = "all") => {
     const drafts = current.content.episodes
       .map((episode) => ({ episode, body: episodeBody(current, episode.number) }))
@@ -758,7 +760,7 @@ export default function StoryStudio({ privateLogin = false }: { privateLogin?: b
             <div className="metric-card"><span className="metric-icon amber"><FileText /></span><div><small>전체 회차</small><strong>{current.content.episodes.length}<em>화</em></strong></div></div>
             <div className="metric-card"><span className="metric-icon blue"><Users /></span><div><small>주요 인물</small><strong>{current.content.characters.length}<em>명</em></strong></div></div>
             <div className="metric-card"><span className="metric-icon violet"><GitBranch /></span><div><small>관리 복선</small><strong>{current.content.foreshadows.length}<em>개</em></strong></div></div>
-            <div className="metric-card progress-card"><div className="metric-progress-head"><span><small>집필 진행률</small><strong>{completion}%</strong></span><span>{drafted}/{current.targetEpisodes}화</span></div><Progress value={completion} className="story-progress" /></div>
+            <div className="metric-card progress-card"><div className="metric-progress-head"><span><small>집필 진행률</small><strong>{completion}%</strong><small className="metric-total-characters">총 {totalManuscriptCharacters.toLocaleString()}자</small></span><span>{drafted}/{current.targetEpisodes}화</span></div><Progress value={completion} className="story-progress" /></div>
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="story-tabs">

@@ -245,6 +245,7 @@ button { cursor: pointer; }
 .metric-progress-head { display: flex; justify-content: space-between; color: #777f8d; font-size: 11px; }
 .metric-progress-head span:first-child { display: flex; align-items: baseline; gap: 9px; }
 .metric-progress-head strong { color: #ede9df; font-size: 18px; }
+.metric-progress-head .metric-total-characters { color: #a4abb7; white-space: nowrap; }
 .story-progress { height: 5px; margin-top: 13px; background: #262e3d; }
 .story-progress > div { background: linear-gradient(90deg, #d9962b, #f8c86c); }
 

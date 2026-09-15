@@ -3,7 +3,9 @@
 ## 완료사항
 
 - 기준 프로젝트: `C:\Users\tiger\Projects\StoryWell`, 브랜치 `main`.
-- 제품 버전: **StoryWell Ver 2.13**.
+- 제품 버전: **StoryWell Ver 2.15**.
+- 집필 진행률 퍼센트 바로 뒤에 모든 회차 원고의 공백 포함 총 글자 수를 표시한다. 기존 1화 원고 형식도 중복 없이 합산한다.
+- 자동 검사 60개, TypeScript 검사, Sites 빌드, 390×844 모바일 렌더링을 통과했다. 모바일에서 `집필 진행률 1% 총 329자`가 겹침·잘림 없이 표시됐다.
 - 헤르메스 기능 커밋: `ecbe2586728f81a1389bac63d19bb0be936ddcb3` — 상단 고정 원고 듣기 버튼 및 접근 가능한 팝업.
 - 회차별 듣기 위치, 선택 위치부터 듣기, 음성·속도·톤 제어를 유지했다.
 - 2026-09-15 Codex 재검증: 원고 듣기 11개를 포함한 자동 검사 59개, TypeScript 검사, Sites 빌드 통과.
@@ -16,6 +18,7 @@
 
 - 실제 휴대폰 스피커 출력 검증은 기기에서 확인해야 한다. 헤르메스 인계 기록에는 1280×900, 390×844 팝업·스크롤·Escape 검증 통과가 남아 있다.
 - 배포별 최신 결과는 `outputs/deployments/` 및 Git notes `storywell-deployments`를 확인한다.
+- Ver 2.15의 GitHub push와 Sites 게시는 아직 하지 않았다. 현재 헤르메스 셸에서 Codex CLI를 찾지 못해 `python ops/deploy_sites.py verify`가 `[WinError 2]`로 중단됐다.
 
 ## 주요 결정사항
 
@@ -27,6 +30,6 @@
 
 ## 다음 작업
 
-1. `AGENTS.md`, `WORK_LOG.md`, Git 상태를 확인하고 이 폴더에서 작업한다.
-2. 변경 후 `python ops/deploy_sites.py verify`를 실행하고 작업 기록과 자동 갱신 버전을 함께 커밋한다.
+1. Codex CLI가 보이는 환경에서 `python ops/deploy_sites.py verify`를 다시 실행한다.
+2. 검증 성공 후 로컬 커밋과 GitHub push를 완료한다.
 3. `python ops/deploy_sites.py deploy`로 게시하고 성공 결과를 확인한다.
