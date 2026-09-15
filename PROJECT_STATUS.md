@@ -10,7 +10,7 @@
 - 기존 Sites 주소에 Ver 2.13 게시 완료: Sites 게시 번호 18, 배포 `appgdep_6aa897e1e8588191958ead2f9a21e528`, 상태 `succeeded`.
 - GitHub와 Sites에 같은 기능 소스를 업로드했다.
 - 작업 폴더를 Google Drive 밖의 로컬 C 드라이브로 이전했다.
-- 헤르메스 배포용 `ops/storywell.ps1` 명령을 추가했다. 상태 조회는 기존 Codex 로그인 재사용으로 실제 성공했다.
+- 헤르메스 배포용 `python ops/deploy_sites.py` 명령을 추가했다. 상태 조회는 기존 Codex 로그인 재사용으로 실제 성공했다.
 
 ## 미완료사항
 
@@ -28,5 +28,5 @@
 ## 다음 작업
 
 1. `AGENTS.md`, `WORK_LOG.md`, Git 상태를 확인하고 이 폴더에서 작업한다.
-2. 변경 후 `ops/storywell.ps1 verify`를 실행하고 작업 기록과 자동 갱신 버전을 함께 커밋한다.
-3. `ops/storywell.ps1 deploy`로 게시하고 성공 결과를 확인한다.
+2. 변경 후 `python ops/deploy_sites.py verify`를 실행하고 작업 기록과 자동 갱신 버전을 함께 커밋한다.
+3. `python ops/deploy_sites.py deploy`로 게시하고 성공 결과를 확인한다.

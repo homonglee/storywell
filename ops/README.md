@@ -6,12 +6,12 @@
 
 1. 이 폴더에서 `AGENTS.md`, `PROJECT_STATUS.md`, `WORK_LOG.md`, Git 상태를 읽는다.
 2. 다른 에이전트가 편집 중이면 동일 파일을 동시에 수정하지 않는다.
-3. 기능을 수정하고 `powershell -NoProfile -File ops/storywell.ps1 verify`를 실행한다.
+3. 기능을 수정하고 `python ops/deploy_sites.py verify`를 실행한다.
 4. 자동으로 갱신된 버전 파일을 포함해 검토한 파일과 작업 기록을 커밋한다.
-5. `powershell -NoProfile -File ops/storywell.ps1 deploy`를 실행한다.
+5. `python ops/deploy_sites.py deploy`를 실행한다.
 6. `succeeded` 결과와 URL을 확인한다. 세부 기록은 `outputs/deployments/`에 남는다.
 
-상태 확인: `powershell -NoProfile -File ops/storywell.ps1 status`
+상태 확인: `python ops/deploy_sites.py status`
 
 ## 인증과 게시 대상
 
