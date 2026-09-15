@@ -23,4 +23,5 @@
 - 회차별 `episodeDrafts`를 합산하고, 기존 형식의 1화 `manuscript`가 별도로 남은 경우 중복 없이 포함한다.
 - TDD로 신규 합산 검사를 실패→통과시켰고 전체 자동 검사 60개, TypeScript, `git diff --check`, Sites 빌드를 통과했다.
 - 390×844 헤드리스 Chrome에서 `집필 진행률 1% 총 329자`가 한 줄에 겹침·잘림 없이 표시되는 것을 확인했다.
-- `python ops/deploy_sites.py verify`는 현재 헤르메스 셸에서 Codex CLI를 찾지 못해 `[WinError 2]`로 중단됐다. GitHub push와 Sites 게시는 보류한다.
+- 기능 소스 커밋 `b2feb2d`를 GitHub `main`에 push했다.
+- `python ops/deploy_sites.py verify`는 현재 헤르메스 셸에서 Codex CLI를 찾지 못해 `[WinError 2]`로 중단됐다. Sites 게시는 보류한다.

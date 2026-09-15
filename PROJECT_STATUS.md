@@ -18,7 +18,7 @@
 
 - 실제 휴대폰 스피커 출력 검증은 기기에서 확인해야 한다. 헤르메스 인계 기록에는 1280×900, 390×844 팝업·스크롤·Escape 검증 통과가 남아 있다.
 - 배포별 최신 결과는 `outputs/deployments/` 및 Git notes `storywell-deployments`를 확인한다.
-- Ver 2.15의 GitHub push와 Sites 게시는 아직 하지 않았다. 현재 헤르메스 셸에서 Codex CLI를 찾지 못해 `python ops/deploy_sites.py verify`가 `[WinError 2]`로 중단됐다.
+- Ver 2.15 소스 커밋 `b2feb2d`는 GitHub `main`에 push했다. Sites 게시는 아직 하지 않았다. 현재 헤르메스 셸에서 Codex CLI를 찾지 못해 `python ops/deploy_sites.py verify`가 `[WinError 2]`로 중단됐다.
 
 ## 주요 결정사항
 
@@ -31,5 +31,4 @@
 ## 다음 작업
 
 1. Codex CLI가 보이는 환경에서 `python ops/deploy_sites.py verify`를 다시 실행한다.
-2. 검증 성공 후 로컬 커밋과 GitHub push를 완료한다.
-3. `python ops/deploy_sites.py deploy`로 게시하고 성공 결과를 확인한다.
+2. `python ops/deploy_sites.py deploy`로 Ver 2.15를 게시하고 성공 결과를 확인한다.
