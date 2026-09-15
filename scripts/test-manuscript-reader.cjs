@@ -8,13 +8,13 @@ const root = process.cwd();
 const requireProject = createRequire(path.join(root, 'package.json'));
 const ts = requireProject('typescript');
 
-function loadTS(relative) {
+function loadTS(relative, resolve = require) {
   const source = fs.readFileSync(path.join(root, relative), 'utf8');
   const compiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const module = { exports: {} };
-  new Function('require', 'module', 'exports', compiled)(require, module, module.exports);
+  new Function('require', 'module', 'exports', compiled)(resolve, module, module.exports);
   return module.exports;
 }
 
@@ -83,11 +83,14 @@ test('writing workspace exposes a complete manuscript reader without storing aud
   for (const label of ['읽어주기', '선택한 위치부터 듣기', '일시정지', '정지', '이전', '다음', '음성 새로고침', '한국어 남성', '낮은 음높이']) {
     assert.match(component, new RegExp(label));
   }
-  assert.match(component, /speechSynthesis/);
-  assert.match(component, /localStorage/);
+  const engine = fs.readFileSync(path.join(root, 'hooks/use-manuscript-reader.ts'), 'utf8');
+  assert.match(engine, /speechSynthesis/);
+  assert.match(engine, /localStorage/);
+  assert.doesNotMatch(engine, /fetch\s*\(/);
   assert.doesNotMatch(component, /fetch\s*\(/);
-  assert.match(studio, /<ManuscriptReader[\s\S]*text=\{activeManuscript\}/);
-  assert.match(studio, /textareaRef=\{manuscriptRef\}/);
+  assert.match(studio, /useManuscriptReader\(\{ text: activeManuscript,[^\n]*textareaRef: manuscriptRef/);
+  assert.match(studio, /<ManuscriptReader reader=\{reader\}/);
+  assert.doesNotMatch(component, /useEffect|speechSynthesis\.cancel/);
 });
 
 test('the sticky header opens the manuscript reader in an accessible popup instead of inline', () => {
@@ -152,4 +155,100 @@ test('cursor offsets never split surrogate pairs or read beyond the manuscript',
   assert.equal(readingChunksFrom(text, 2)[0].text, '😀뒤.');
   assert.deepEqual(readingChunksFrom(text, text.length), []);
   assert.equal(safeReadingOffset(text, Infinity), 0);
+});
+
+
+// Exercise the real reader hook with deterministic browser events; no device audio is played.
+function readerHarness(t, initialText = '첫 문장입니다. 두 번째 문장입니다.') {
+  const previous = { window: global.window, document: global.document, utterance: global.SpeechSynthesisUtterance };
+  const slots = [], effects = [], timers = new Map(), storage = new Map(), spoken = [];
+  let cursor = 0, dirty = false, timerId = 0, cancels = 0;
+  const changed = (a, b) => !a || a.length !== b.length || a.some((x, i) => !Object.is(x, b[i]));
+  const react = {
+    useState(initial) {
+      const i = cursor++;
+      if (!(i in slots)) slots[i] = typeof initial === 'function' ? initial() : initial;
+      return [slots[i], value => { const next = typeof value === 'function' ? value(slots[i]) : value; if (!Object.is(next, slots[i])) { slots[i] = next; dirty = true; } }];
+    },
+    useRef(initial) { const i = cursor++; return slots[i] ??= { current: initial }; },
+    useMemo(make, deps) { const i = cursor++; if (!slots[i] || changed(slots[i].deps, deps)) slots[i] = { deps, value: make() }; return slots[i].value; },
+    useCallback(fn, deps) { return react.useMemo(() => fn, deps); },
+    useEffect(effect, deps) {
+      const i = cursor++;
+      if (!slots[i] || changed(slots[i].deps, deps)) effects.push(() => { slots[i]?.cleanup?.(); slots[i] = { deps, cleanup: effect() }; });
+    },
+  };
+  class Utterance { constructor(text) { this.text = text; } }
+  const synthesis = { cancel() { cancels++; }, resume() {}, speak(u) { spoken.push(u); },
+    pause() { throw new Error('Native Android pause/resume cannot be relied on'); },
+    getVoices: () => [voice('Microsoft Heami')], addEventListener() {}, removeEventListener() {} };
+  global.document = { visibilityState: 'visible' };
+  global.window = { speechSynthesis: synthesis, SpeechSynthesisUtterance: Utterance,
+    setTimeout(fn, delay) { timers.set(++timerId, { fn, delay }); return timerId; }, clearTimeout(id) { timers.delete(id); },
+    addEventListener() {}, removeEventListener() {},
+    localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) } };
+  global.SpeechSynthesisUtterance = Utterance;
+  const { useManuscriptReader } = loadTS('hooks/use-manuscript-reader.ts', id => id === 'react' ? react : id === '@/lib/manuscript-reader' ? loadTS('lib/manuscript-reader.ts') : require(id));
+  let props = { text: initialText, documentKey: 'work:1', textareaRef: { current: { selectionStart: 0 } } }, result;
+  const render = (update = {}) => {
+    props = { ...props, ...update };
+    for (let n = 0; n < 20; n++) {
+      cursor = 0; dirty = false; result = useManuscriptReader(props);
+      while (effects.length) effects.shift()();
+      for (const [id, timer] of timers) if (timer.delay === 0) { timers.delete(id); timer.fn(); }
+      if (!dirty) return result;
+    }
+    throw new Error('Reader render did not settle');
+  };
+  const unmount = () => { for (const slot of slots) slot?.cleanup?.(); };
+  t.after(() => { unmount(); global.window = previous.window; global.document = previous.document; global.SpeechSynthesisUtterance = previous.utterance; });
+  render();
+  return { render, spoken, storage, unmount, get cancels() { return cancels; } };
+}
+
+test('a popup or tab rerender preserves the active reader; changing episodes cancels it', t => {
+  const h = readerHarness(t);
+  h.render().playAll();
+  const u = h.spoken.at(-1); u.onstart();
+  assert.equal(h.render().phase, 'speaking');
+  const before = h.cancels;
+  assert.equal(h.render({ popupOpen: false, activeTab: 'characters' }).phase, 'speaking');
+  assert.equal(h.cancels, before);
+  h.render({ documentKey: 'work:2' });
+  assert.ok(h.cancels > before);
+  u.onend(); // A late callback from the previous episode cannot start another utterance.
+  assert.equal(h.spoken.length, 1);
+  assert.equal(h.render().phase, 'ready');
+});
+
+test('pause and resume restart from the last word without depending on native resume', t => {
+  const h = readerHarness(t);
+  h.render().playAll();
+  const u = h.spoken.at(-1); u.onstart(); u.onboundary({ charIndex: 2 });
+  h.render().pause();
+  assert.equal(h.render().phase, 'paused');
+  h.render().playAll();
+  assert.equal(h.spoken.at(-1).text, u.text.slice(2));
+  const before = h.spoken.length; u.onend();
+  assert.equal(h.spoken.length, before);
+});
+
+test('background interruption preserves position and reports the browser limitation', t => {
+  const h = readerHarness(t);
+  h.render().playAll();
+  const u = h.spoken.at(-1); u.onstart(); u.onboundary({ charIndex: 2 });
+  global.document.visibilityState = 'hidden'; u.onerror({ error: 'interrupted' });
+  const reader = h.render();
+  assert.equal(reader.phase, 'paused');
+  assert.equal(reader.position, 2);
+  assert.match(reader.status, /브라우저가 백그라운드 음성을 중단/);
+  assert.equal(JSON.parse([...h.storage.values()][0]).offset, 2);
+});
+
+test('leaving the app releases its active speech and ignores late events', t => {
+  const h = readerHarness(t);
+  h.render().playAll(); const u = h.spoken.at(-1); u.onstart();
+  const before = h.cancels; h.unmount();
+  assert.ok(h.cancels > before);
+  u.onend(); assert.equal(h.spoken.length, 1);
 });

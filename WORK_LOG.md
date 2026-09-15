@@ -51,3 +51,12 @@
 - 코드 지문 변경으로 제품 버전이 2.16으로 자동 상승했다. GitHub 반영 후 기존 Sites 주소에 게시하며 최종 결과는 배포 커밋의 Git notes와 `outputs/deployments/`에 기록한다.
 
 - Ver 2.16 게시 완료: Sites 게시 번호 21, 배포 `appgdep_6aa9412d332881919feb6d98e437c532`, 상태 `succeeded`. 배포 소스 `3eb479e29dbd41e0b11521a5fddb8a5f15b73dd9`의 Git notes와 로컬 JSON에 성공 기록을 남겼다. 기존 주소·공유 범위·데이터를 유지했으며 Vercel은 사용하지 않았다.
+
+## 2026-09-15 — Ver 2.17 팝업과 낭독 수명 분리
+
+- 원고 듣기의 재생 상태를 팝업 컴포넌트에서 상위 집필 화면의 훅으로 옮겼다. 팝업 닫기나 StoryWell 탭 전환이 재생을 취소하지 않는다. 상단 원고 듣기 버튼에서 재생 상태를 표시하고 도구를 다시 열 수 있다.
+- 작품·회차·원고 변경 또는 앱 페이지 이탈 시에는 기존 낭독을 정리한다. 늦게 도착한 이전 낭독 이벤트는 다음 구간을 시작하지 않는다.
+- 안드로이드의 네이티브 pause/resume에 의존하지 않고 기억한 위치에서 재시작하도록 고쳤다. 백그라운드에서 브라우저가 음성을 중단하면 위치를 보존하고 제한을 안내한다.
+- 자동 검사 64개(낭독 15개), TypeScript, Sites 빌드 통과. React 점검에서 효과 정리, 상태 소유권, 키·문서 변경과 늦은 이벤트 무효화를 확인했다. 제품 버전 2.17로 자동 갱신됐다.
+- 중요한 범위: 이 변경은 무료 브라우저 음성으로 앱 안에서 듣기를 유지하는 개선이다. 휴대폰 앱 전환·화면 잠금 중 음성 재생을 보장하지 않는다. 기기 종류와 별도 API 비용이 있는 음성 파일 방식 허용 여부를 사용자에게 질문했으며 아직 답변이 없다. 유료 TTS API는 연결하거나 호출하지 않았다.
+- 근거: Chromium Android의 CanSpeakNow는 기본적으로 보이는 Activity를 요구하고 음성 엔진은 그 상태가 바뀌면 중단한다. https://raw.githubusercontent.com/chromium/chromium/main/content/browser/speech/tts_environment_android_impl.cc 및 https://raw.githubusercontent.com/chromium/chromium/main/content/browser/speech/tts_android.cc . 미디어 파일의 잠금 화면 제어는 https://developer.chrome.com/blog/media-session 참고.
