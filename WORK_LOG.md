@@ -33,3 +33,11 @@
 - 첫 빌드의 Windows dist 접근 오류는 추적되지 않은 기존 산출물을 `.sites-runtime/dist-before-final-215`에 보존한 뒤 해결했다.
 - 제품 버전 2.15와 코드 지문이 일치해 재빌드로 버전이 추가 상승하지 않았다. 배포 기록의 오래된 고정 검사 개수는 전체 회귀 검사 표기로 수정했다.
 - GitHub 반영 후 기존 Sites 주소와 공유 범위로 게시한다. 최종 성공 여부와 게시 번호는 해당 배포 커밋의 `storywell-deployments` Git notes 및 `outputs/deployments/`에 기록한다.
+
+### 최종 게시 결과
+
+- `python ops/deploy_sites.py deploy` 성공. 제품 Ver 2.15, Sites 게시 번호 20, 배포 `appgdep_6aa91647be08819181a9ef5a56fe0ed1`, 상태 `succeeded`.
+- 게시 소스는 `a335f42ab6c464cad4fc245e368f8905c34b5e82`이며 GitHub와 Sites에 모두 먼저 반영했다.
+- 검증한 로컬 빌드 파일을 네이티브 Sites 업로드로 게시 번호 20에 저장한 뒤 지정 배포 명령이 그 파일을 재사용했다.
+- 기존 주소, 사용자 접근 범위, 저장 데이터와 런타임 연결을 유지했다. Vercel 배포는 실행하지 않았다.
+- 성공 기록 JSON을 `outputs/deployments/`에 저장하고 동일 배포 커밋의 Git notes를 GitHub에 동기화했다. 이 완료 기록 갱신은 문서만 변경하므로 제품 버전 상승과 재배포는 필요 없다.
