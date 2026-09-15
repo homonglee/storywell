@@ -49,3 +49,5 @@
 - 다른 탭에서는 버튼을 숨기며 기존 대화상자와 모바일 메뉴보다 낮은 레이어에 둔다. 사용 설명에도 동작을 추가했다.
 - `python ops/deploy_sites.py verify`: 자동 검사 60개, TypeScript, Sites 빌드 통과. 로컬 기본 경로 HTTP 200 확인. 실제 휴대폰 터치 검증은 수행하지 않았다.
 - 코드 지문 변경으로 제품 버전이 2.16으로 자동 상승했다. GitHub 반영 후 기존 Sites 주소에 게시하며 최종 결과는 배포 커밋의 Git notes와 `outputs/deployments/`에 기록한다.
+
+- Ver 2.16 게시 완료: Sites 게시 번호 21, 배포 `appgdep_6aa9412d332881919feb6d98e437c532`, 상태 `succeeded`. 배포 소스 `3eb479e29dbd41e0b11521a5fddb8a5f15b73dd9`의 Git notes와 로컬 JSON에 성공 기록을 남겼다. 기존 주소·공유 범위·데이터를 유지했으며 Vercel은 사용하지 않았다.

@@ -3,8 +3,10 @@
 ## 완료사항
 
 - 기준 프로젝트: `C:\Users\tiger\Projects\StoryWell`, 브랜치 `main`.
-- 제품 버전 및 현재 Sites 게시 버전: **StoryWell Ver 2.15**.
-- 2026-09-15 최종 게시 성공: Sites 게시 번호 20, 배포 `appgdep_6aa91647be08819181a9ef5a56fe0ed1`, 소스 `a335f42ab6c464cad4fc245e368f8905c34b5e82`.
+- 제품 버전 및 현재 Sites 게시 버전: **StoryWell Ver 2.16**.
+- 모든 작품·회차의 집필 탭 오른쪽 아래에 고정 `맨 위로` 버튼을 추가했다. 페이지와 원고 입력창 내부를 함께 맨 위로 이동한다.
+- Ver 2.16 최종 게시 성공: Sites 게시 번호 21, 배포 `appgdep_6aa9412d332881919feb6d98e437c532`, 소스 `3eb479e29dbd41e0b11521a5fddb8a5f15b73dd9`.
+- 이전 Ver 2.15 게시 이력: Sites 게시 번호 20, 배포 `appgdep_6aa91647be08819181a9ef5a56fe0ed1`, 소스 `a335f42ab6c464cad4fc245e368f8905c34b5e82`.
 - Codex 최종 검증: 자동 검사 60개, TypeScript, Sites 빌드, 운영 도구 검사 6개 통과. 기존 URL·공유 범위·D1·R2·OpenAI 연결을 유지했다.
 - 집필 진행률 퍼센트 바로 뒤에 모든 회차 원고의 공백 포함 총 글자 수를 표시한다. 기존 1화 원고 형식도 중복 없이 합산한다.
 - 자동 검사 60개, TypeScript 검사, Sites 빌드, 390×844 모바일 렌더링을 통과했다. 모바일에서 `집필 진행률 1% 총 329자`가 겹침·잘림 없이 표시됐다.
