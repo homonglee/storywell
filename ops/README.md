@@ -31,7 +31,7 @@ Git 원격 이름: `github` = GitHub 소스 저장소, `origin` = Sites 전용 �
 
 ## 검증 범위
 
-배포마다 기존 회귀 검사 59개, TypeScript 검사, Sites 빌드를 실행한다. 팝업의 실제 터치 조작과 휴대폰 스피커 출력은 별도 기기 검증이다.
+배포마다 기존 회귀 검사 전체, TypeScript 검사, Sites 빌드를 실행한다. 팝업의 실제 터치 조작과 휴대폰 스피커 출력은 별도 기기 검증이다.
 
 공식 근거: https://learn.chatgpt.com/docs/auth 및 https://learn.chatgpt.com/docs/non-interactive-mode . RPC 입력 형식은 현재 설치된 `codex app-server generate-json-schema --experimental` 출력으로 확인했다.
 

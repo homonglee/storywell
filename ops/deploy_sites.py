@@ -358,7 +358,7 @@ def main():
                       'commit_sha': sha, 'project_id': PROJECT_ID, 'version_id': version['id'],
                       'sites_version_number': version['version_number'],
                       'deployment_id': deployment['id'], 'status': deployment['status'],
-                      'url': deployment['url'], 'validation': '59 regression tests, TypeScript, Sites build'}
+                      'url': deployment['url'], 'validation': 'regression suite, TypeScript, Sites build'}
             records = ROOT / 'outputs/deployments'
             records.mkdir(parents=True, exist_ok=True)
             (records / (sha + '.json')).write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')

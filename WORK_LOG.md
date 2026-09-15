@@ -25,3 +25,11 @@
 - 390×844 헤드리스 Chrome에서 `집필 진행률 1% 총 329자`가 한 줄에 겹침·잘림 없이 표시되는 것을 확인했다.
 - 기능 소스 커밋 `b2feb2d`를 GitHub `main`에 push했다.
 - `python ops/deploy_sites.py verify`는 현재 헤르메스 셸에서 Codex CLI를 찾지 못해 `[WinError 2]`로 중단됐다. Sites 게시는 보류한다.
+
+## 2026-09-15 — Codex 최종 배포 인수 검증
+
+- C 드라이브 기준 저장소에서 헤르메스의 `b2feb2d` 작업을 인수하고 전체 원고 글자 수 계산과 기존 듣기 기능 보존을 확인했다.
+- `python ops/deploy_sites.py verify` 재실행으로 자동 검사 60개, TypeScript, Sites 빌드를 통과했다. 운영 도구 검사 6개도 통과했다.
+- 첫 빌드의 Windows dist 접근 오류는 추적되지 않은 기존 산출물을 `.sites-runtime/dist-before-final-215`에 보존한 뒤 해결했다.
+- 제품 버전 2.15와 코드 지문이 일치해 재빌드로 버전이 추가 상승하지 않았다. 배포 기록의 오래된 고정 검사 개수는 전체 회귀 검사 표기로 수정했다.
+- GitHub 반영 후 기존 Sites 주소와 공유 범위로 게시한다. 최종 성공 여부와 게시 번호는 해당 배포 커밋의 `storywell-deployments` Git notes 및 `outputs/deployments/`에 기록한다.
