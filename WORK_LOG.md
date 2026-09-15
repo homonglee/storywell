@@ -60,3 +60,5 @@
 - 자동 검사 64개(낭독 15개), TypeScript, Sites 빌드 통과. React 점검에서 효과 정리, 상태 소유권, 키·문서 변경과 늦은 이벤트 무효화를 확인했다. 제품 버전 2.17로 자동 갱신됐다.
 - 중요한 범위: 이 변경은 무료 브라우저 음성으로 앱 안에서 듣기를 유지하는 개선이다. 휴대폰 앱 전환·화면 잠금 중 음성 재생을 보장하지 않는다. 기기 종류와 별도 API 비용이 있는 음성 파일 방식 허용 여부를 사용자에게 질문했으며 아직 답변이 없다. 유료 TTS API는 연결하거나 호출하지 않았다.
 - 근거: Chromium Android의 CanSpeakNow는 기본적으로 보이는 Activity를 요구하고 음성 엔진은 그 상태가 바뀌면 중단한다. https://raw.githubusercontent.com/chromium/chromium/main/content/browser/speech/tts_environment_android_impl.cc 및 https://raw.githubusercontent.com/chromium/chromium/main/content/browser/speech/tts_android.cc . 미디어 파일의 잠금 화면 제어는 https://developer.chrome.com/blog/media-session 참고.
+
+- 무료 브라우저 음성 개선 Ver 2.17 게시 완료: Sites 게시 번호 22, 배포 `appgdep_6aa944f76ff88191983843e10a6a0f20`, 상태 `succeeded`. 소스 `6b9046916a547ee253944c80259835648c418af2`의 Git notes와 로컬 JSON 기록을 GitHub에 동기화했다. 화면 잠금 중 재생은 비용·기기 답변을 기다리는 미완료 작업으로 남긴다.
